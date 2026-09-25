@@ -1,0 +1,40 @@
+# Sync diário da base de lojas → Supabase.
+# Roda todo dia às 06:00 (Brasília) e também pelo botão "Run workflow".
+# Secrets necessários (Settings → Secrets and variables → Actions → Secrets):
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BASE_API_URL, BASE_API_TOKEN
+name: Sync diário da base
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC = 06:00 em Brasília
+  workflow_dispatch:
+    inputs:
+      simular:
+        description: 'Só simular (não grava nada)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync-base
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest   # se a API só responde na rede da Bee, troque por um runner self-hosted
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Rodar sync
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BASE_API_URL: ${{ secrets.BASE_API_URL }}
+          BASE_API_TOKEN: ${{ secrets.BASE_API_TOKEN }}
+          BASE_API_HEADER: ${{ vars.BASE_API_HEADER }}
+          ATUALIZAR_PRODUZIDO: ${{ vars.ATUALIZAR_PRODUZIDO || 'true' }}
+        run: node scripts/sync.mjs ${{ inputs.simular && '--simular' || '' }}

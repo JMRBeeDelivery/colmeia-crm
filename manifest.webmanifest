@@ -1,0 +1,10 @@
+{
+  "name": "Colmeia CRM",
+  "short_name": "Colmeia",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#F3F3EF",
+  "theme_color": "#F5B800",
+  "lang": "pt-BR",
+  "icons": [{ "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

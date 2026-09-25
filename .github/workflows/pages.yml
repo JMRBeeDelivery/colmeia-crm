@@ -1,0 +1,55 @@
+# Publica o app no GitHub Pages a cada push na branch main.
+# Se as variáveis SUPABASE_URL e SUPABASE_ANON_KEY existirem no repositório
+# (Settings → Secrets and variables → Actions → Variables), elas substituem assets/config.js.
+name: Publicar no GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Testar regras de negócio
+        run: node --test scripts/base.test.mjs
+
+      - name: Montar site
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: |
+          mkdir -p _site
+          cp -r index.html manifest.webmanifest assets _site/
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            cat > _site/assets/config.js <<JS
+          export const CONFIG = {
+            supabaseUrl: '${SUPABASE_URL}',
+            supabaseAnonKey: '${SUPABASE_ANON_KEY}',
+            dominioEmail: 'bee.com.br',
+          };
+          JS
+            echo "config.js gerado a partir das variáveis do repositório"
+          fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
