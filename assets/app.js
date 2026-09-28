@@ -125,7 +125,7 @@ function lojasFiltradas(opts = {}) {
 const nomePraca = id => { const p = S.pracas[id]; return p ? p.rotulo : '—'; };
 const nomePessoa = id => { const p = S.pessoas[id]; return p ? p.nome : '—'; };
 const crmDe = id => S.crm.get(id) || { notas: [], tarefas: [] };
-const ultimoContato = id => { const n = (crmDe(id).notas || []).find(x => x.tipo !== 'sistema'); return n ? n.em : null; };
+const ultimoContato = id => { const n = (crmDe(id).notas || []).find(x => x.tipo !== 'sistema' && !isNaN(new Date(x.em))); return n ? n.em : null; };
 const tarefasAbertas = id => (crmDe(id).tarefas || []).filter(t => !t.feita);
 
 /* ---------- feedback ---------- */
@@ -177,9 +177,10 @@ function renderMe() {
 }
 function renderSync() {
   const s = S.sync; const el = $('syncInfo');
-  if (!s) { el.innerHTML = '<span class="dot old"></span>Base ainda não importada'; return; }
+  if (!s) { el.innerHTML = '<span class="dot old"></span><span class="txt">Base ainda não importada</span>'; return; }
   const old = (Date.now() - new Date(s.executado_em).getTime()) > 36 * 3600e3;
-  el.innerHTML = `<span class="dot ${old ? 'old' : ''}"></span>Base atualizada em ${esc(fmtDT(s.executado_em))}${s.fonte ? ' · ' + esc(s.fonte) : ''}`;
+  el.innerHTML = `<span class="dot ${old ? 'old' : ''}"></span><span class="txt">Base atualizada em ${esc(fmtDT(s.executado_em))}</span>`;
+  el.title = s.fonte ? 'Fonte: ' + s.fonte : '';
 }
 function renderBanner() {
   const b = $('banner');

@@ -41,6 +41,9 @@ Prospecção vira cliente: quando a base traz uma loja sem código conhecido e c
 
 **Ao mudar o schema:** crie `supabase/migrations/00N_descricao.sql` (idempotente, com `if not exists` / `drop ... if exists`), nunca edite uma migração já aplicada em produção. Teste as políticas com `set role authenticated; set request.jwt.claims = '{"email":"...","role":"authenticated"}';` num Postgres local.
 
+## Design
+Especificação visual completa em `design/DESIGN.md`, com capturas em `design/telas/`. Qualquer tela nova segue esses tokens e componentes.
+
 ## Convenções de código
 - Banco em `snake_case`. No app, `deLoja` / `dePraca` / `dePessoa` convertem para camelCase. Mantenha essa fronteira em `assets/app.js`.
 - Todo texto vindo do banco entra no HTML via `esc()` ou `textContent`.
