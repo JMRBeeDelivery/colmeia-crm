@@ -24,16 +24,25 @@ SharePoint (.xlsx/.csv) ou Google Sheets  ◄──  script de extração do ban
 - **Sem servidor próprio e sem build.** O site é HTML + JavaScript puro.
 - **A segurança fica no banco.** As regras de acesso (Row Level Security) do Postgres decidem quais linhas cada pessoa pode ler e alterar. A chave pública que vai no site não dá acesso a nada sozinha.
 - **Só entra quem está cadastrado.** Um gatilho no banco recusa qualquer e-mail que não seja @beedelivery.com.br ou que não esteja na tabela `pessoas`. O domínio aceito fica em `assets/config.js` (`dominiosEmail`) e na migração 005; mantenha os dois iguais.
+- **Login com e-mail e senha, sem envio de e-mail.**
+  - As contas são criadas pelo gestor (`liberar_acesso`, migração 006) com a **senha inicial**.
+  - No primeiro acesso, o app obriga a pessoa a criar a própria senha.
+  - Quem esquecer a senha pede ao gestor: **Gestão → Equipe e acessos → Redefinir senha**.
+  - Para trocar a senha a qualquer momento, clique no próprio nome no topo.
+  - A senha inicial **não fica no repositório**: ela é gravada só no banco, pelo arquivo local `supabase/local/acessos-equipe.sql`.
 
 ## Colocar no ar (cerca de 30 minutos)
 
 ### 1. Supabase
 1. Crie um projeto em [supabase.com](https://supabase.com) (região São Paulo).
-2. Em **SQL Editor**, rode nesta ordem: `supabase/migrations/001_schema.sql`, `002_ativacao_carga_inicial.sql`, `003_metas_indicadores.sql`, `004_pedidos_mes_anterior.sql`, `005_dominios_email.sql` e depois `supabase/seed.sql` (o seed usa as colunas de metas da 003).
-3. Rode também `supabase/local/acessos-equipe.sql`, que tem os e-mails do gestor, dos 2 supervisores e dos 18 comerciais. Esse arquivo **não vai para o git**, porque o repositório do GitHub Pages costuma ser público. Guarde uma cópia fora dele. Sem o arquivo, preencha os e-mails pela aba **Gestão → Equipe e acessos**.
-4. Em **Authentication → Providers → Email**, deixe *Email* ligado. A confirmação de e-mail pode ficar ligada.
-5. Em **Authentication → URL Configuration**, coloque a URL do GitHub Pages (passo 2) em *Site URL* e em *Redirect URLs*.
-6. Para uso real, configure um SMTP próprio em **Authentication → SMTP Settings**. O envio padrão do Supabase tem limite baixo de e-mails por hora.
+2. Em **SQL Editor**, rode nesta ordem: `supabase/migrations/001_schema.sql`, `002_ativacao_carga_inicial.sql`, `003_metas_indicadores.sql`, `004_pedidos_mes_anterior.sql`, `005_dominios_email.sql`, `006_login_com_senha.sql` e depois `supabase/seed.sql` (o seed usa as colunas de metas da 003).
+3. Rode também `supabase/local/acessos-equipe.sql`. Ele grava os e-mails do gestor, dos 2 supervisores e dos 18 comerciais, define a **senha inicial** e cria o login de cada um. Esse arquivo **não vai para o git**, porque o repositório do GitHub Pages costuma ser público. Guarde uma cópia fora dele.
+4. Em **Authentication → Sign In / Providers**:
+   - deixe o provedor *Email* ligado;
+   - **desligue "Allow new users to sign up"**, para que só as contas criadas pelo gestor existam.
+5. Em **Authentication → URL Configuration**, coloque a URL do GitHub Pages (passo 2) em *Site URL*.
+
+O login é por senha, então não é preciso configurar envio de e-mail (SMTP).
 
 ### 2. GitHub
 1. Crie o repositório e envie este código:
@@ -93,9 +102,9 @@ Sem `GOOGLE_SERVICE_ACCOUNT_JSON`, o sync tenta ler a planilha pelo link. Nesse 
 > A leitura por uma API da base (`BASE_API_URL` e `BASE_API_TOKEN`) continua disponível como terceira opção.
 
 ### 4. Equipe
-1. Entre no app com o e-mail do gestor (definido em `supabase/local/acessos-equipe.sql`; sem ele, preencha a pessoa `gestao-comercial` no Table Editor do Supabase).
-2. Em **Gestão → Equipe e acessos**, preencha o e-mail de cada pessoa.
-3. Mande a URL para a equipe. Cada pessoa digita o próprio e-mail e recebe um link de acesso.
+1. Entre no app com o e-mail do gestor e a senha inicial, e crie a sua senha.
+2. Pessoa nova: em **Gestão → Equipe e acessos → Adicionar pessoa**, informe o e-mail. O login é criado na hora, com a senha inicial.
+3. Mande a URL para a equipe com a senha inicial, de preferência por um canal interno e não junto com o link público. Cada pessoa entra com o próprio e-mail e cria a sua senha.
 
 ## Metas do mês
 

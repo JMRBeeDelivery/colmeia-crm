@@ -304,10 +304,25 @@ pre.code{background:var(--surface-2);border:1px solid var(--line);border-radius:
   <form class="box" id="lForm">
     <div class="brand"><span class="hex"></span><b>Colmeia</b><small>CRM Comercial</small></div>
     <h1>Entre com seu e-mail da Bee</h1>
-    <p>Enviamos um link de acesso para o seu e-mail. Não precisa de senha.</p>
-    <input class="field" id="lEmail" type="email" inputmode="email" autocomplete="email" placeholder="nome@beedelivery.com.br" required>
-    <button class="btn primary" id="lBtn" type="submit">Receber link de acesso</button>
+    <p>No primeiro acesso, use a senha inicial informada pelo gestor. Em seguida você cria a sua.</p>
+    <input class="field" id="lEmail" type="email" inputmode="email" autocomplete="username" placeholder="nome@beedelivery.com.br" aria-label="E-mail" required>
+    <input class="field" id="lSenha" type="password" autocomplete="current-password" placeholder="Senha" aria-label="Senha" required>
+    <button class="btn primary" id="lBtn" type="submit">Entrar</button>
     <p class="msg" id="lMsg" role="status"></p>
+    <p class="hint">Esqueceu a senha? Peça ao gestor para redefinir.</p>
+  </form>
+</section>
+<section class="login" id="novaSenha" hidden>
+  <form class="box" id="pwForm">
+    <div class="brand"><span class="hex"></span><b>Colmeia</b><small>CRM Comercial</small></div>
+    <h1 id="pwTitulo">Crie sua senha</h1>
+    <p id="pwTexto">Este é o seu primeiro acesso. Troque a senha inicial por uma senha só sua.</p>
+    <input id="pwUser" type="email" autocomplete="username" hidden>
+    <input class="field" id="pwSenha1" type="password" autocomplete="new-password" placeholder="Nova senha (mínimo 8 caracteres)" aria-label="Nova senha" minlength="8" required>
+    <input class="field" id="pwSenha2" type="password" autocomplete="new-password" placeholder="Repita a nova senha" aria-label="Repita a nova senha" required>
+    <button class="btn primary" id="pwBtn" type="submit">Salvar senha e entrar</button>
+    <button class="btn" id="pwSair" type="button">Sair</button>
+    <p class="msg" id="pwMsg" role="status"></p>
   </form>
 </section>
 <div id="app" hidden>

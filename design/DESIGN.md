@@ -121,11 +121,22 @@ Na navegação inferior do celular, o hexágono fica cinza (`--line`) quando a a
 Cada tela lista o arquivo de captura, o que mostra e como se comporta.
 
 ### 4.1 Login: `01-login.png`, `02-login-link-enviado.png`, `m1-login.png`
-- Caixa centralizada de 420 px com: logo, título "Entre com seu e-mail da Bee", texto "Enviamos um link de acesso para o seu e-mail. Não precisa de senha.", campo de e-mail de 44 px e botão primário **Receber link de acesso**.
+- As capturas ainda mostram o login antigo, por link no e-mail. Hoje o login é por senha.
+- Caixa centralizada de 420 px com:
+  - logo e título "Entre com seu e-mail da Bee";
+  - o texto "No primeiro acesso, use a senha inicial informada pelo gestor. Em seguida você cria a sua.";
+  - campos de e-mail e senha de 44 px e o botão primário **Entrar**;
+  - no rodapé, a dica "Esqueceu a senha? Peça ao gestor para redefinir." em `--muted`.
 - Abaixo do botão, uma mensagem de status em `--accent-text`. Casos:
   - e-mail fora do domínio: "Use seu e-mail @beedelivery.com.br." (placeholder do campo: "nome@beedelivery.com.br");
-  - link enviado: "Enviamos um link de acesso para {email}. Abra o e-mail neste aparelho e toque no link.";
-  - e-mail não cadastrado: "Este e-mail não está cadastrado na equipe comercial. Fale com o gestor."
+  - senha errada: "E-mail ou senha incorretos. No primeiro acesso, use a senha inicial informada pelo gestor."
+- **Tela "Crie sua senha"**, na mesma caixa:
+  - é obrigatória no primeiro acesso e depois de uma redefinição pelo gestor;
+  - texto: "Este é o seu primeiro acesso. Troque a senha inicial por uma senha só sua.";
+  - campos "Nova senha (mínimo 8 caracteres)" e "Repita a nova senha";
+  - botão primário **Salvar senha e entrar** e botão **Sair**.
+  - Mensagens: "A senha precisa ter pelo menos 8 caracteres.", senhas que não conferem e "Escolha uma senha diferente da atual."
+  - Ao clicar no próprio nome no topo, a mesma tela abre como **Trocar senha**, com o texto "Escolha uma nova senha para entrar no Colmeia.", o botão **Salvar nova senha** e o botão **Cancelar** no lugar de **Sair**.
 
 ### 4.2 Metas do mês: `03-metas-gestor.png`, `m2-metas-supervisor.png`, `m3-…-rolado.png`, `d1-metas-escuro.png`
 - Tela inicial do gestor e da supervisão. O comercial começa no Funil.
@@ -209,7 +220,7 @@ Cada tela lista o arquivo de captura, o que mostra e como se comporta.
   - cada alteração salva sozinha e mostra o toast "Salvo: Natal/RN";
   - no fim, "Adicionar praça" em `<details>`.
 - **Painel "Equipe e acessos":**
-  - uma linha por pessoa com avatar, nome, "Papel · Regional · N praças", campo de e-mail (que libera o acesso) e os botões **Ver como** e **Desativar**;
+  - uma linha por pessoa com avatar, nome, "Papel · Regional · N praças", campo de e-mail (que cria o login com a senha inicial) e os botões **Ver como**, **Redefinir senha** (com confirmação; volta para a senha inicial e obriga a troca no próximo acesso) e **Desativar**;
   - no fim, "Adicionar pessoa".
 - **Painel "Base diária":**
   - 3 caixas: Última carga · Lojas na carga · Novas;

@@ -166,26 +166,71 @@ let toastT; function toast(m) { const t = $('toast'); t.textContent = m; t.hidde
 const ok = ({ error, data }) => { if (error) throw error; return data; };
 
 /* ---------- login ---------- */
+// Login por e-mail e senha. As contas são criadas pelo gestor (liberar_acesso, migração 006) com a
+// senha inicial; enquanto user_metadata.senha_trocada não for true, a pessoa precisa criar a própria senha.
+let senhaDoLogin = null; // senha digitada no login, para não aceitar a mesma como nova senha
+const precisaTrocarSenha = session => !(session && session.user && session.user.user_metadata && session.user.user_metadata.senha_trocada === true);
 function mostrarLogin(msg) {
-  $('app').hidden = true; $('login').hidden = false;
+  $('app').hidden = true; $('novaSenha').hidden = true; $('login').hidden = false;
   $('lMsg').textContent = msg || '';
 }
 $('lForm').onsubmit = async e => {
   e.preventDefault();
-  const email = $('lEmail').value.trim().toLowerCase();
+  const email = $('lEmail').value.trim().toLowerCase(), senha = $('lSenha').value;
   if (!emailDaBee(email)) { $('lMsg').textContent = `Use seu e-mail ${DOMINIOS_TXT}.`; return; }
-  $('lBtn').disabled = true; $('lMsg').textContent = 'Enviando…';
-  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+  $('lBtn').disabled = true; $('lMsg').textContent = 'Entrando…';
+  const { error } = await sb.auth.signInWithPassword({ email, password: senha });
   $('lBtn').disabled = false;
   if (error) {
-    $('lMsg').textContent = /não cadastrado|restrito|Database error/i.test(error.message)
-      ? 'Este e-mail não está cadastrado na equipe comercial. Fale com o gestor.'
-      : 'Não foi possível enviar o link: ' + error.message;
+    $('lMsg').textContent = /invalid login credentials/i.test(error.message)
+      ? 'E-mail ou senha incorretos. No primeiro acesso, use a senha inicial informada pelo gestor.'
+      : 'Não foi possível entrar: ' + error.message;
     return;
   }
-  $('lMsg').textContent = `Enviamos um link de acesso para ${email}. Abra o e-mail neste aparelho e toque no link.`;
+  senhaDoLogin = senha; $('lSenha').value = ''; $('lMsg').textContent = '';
+  // o onAuthStateChange (SIGNED_IN) segue para iniciar()
 };
 $('btnSair').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+
+/** Tela de criar senha: obrigatória no primeiro acesso; voluntária pelo botão "Trocar senha". */
+let trocaVoluntaria = false;
+function mostrarTrocaSenha(session, voluntaria = false) {
+  trocaVoluntaria = voluntaria;
+  $('login').hidden = true; $('app').hidden = true; $('novaSenha').hidden = false;
+  $('pwUser').value = session.user.email || '';
+  $('pwTitulo').textContent = voluntaria ? 'Trocar senha' : 'Crie sua senha';
+  $('pwTexto').textContent = voluntaria ? 'Escolha uma nova senha para entrar no Colmeia.' : 'Este é o seu primeiro acesso. Troque a senha inicial por uma senha só sua.';
+  $('pwBtn').textContent = voluntaria ? 'Salvar nova senha' : 'Salvar senha e entrar';
+  $('pwSair').textContent = voluntaria ? 'Cancelar' : 'Sair';
+  $('pwSenha1').value = ''; $('pwSenha2').value = ''; $('pwMsg').textContent = '';
+  $('pwSenha1').focus();
+}
+$('pwForm').onsubmit = async e => {
+  e.preventDefault();
+  const s1 = $('pwSenha1').value, s2 = $('pwSenha2').value;
+  if (s1.length < 8) { $('pwMsg').textContent = 'A senha precisa ter pelo menos 8 caracteres.'; return; }
+  if (s1 !== s2) { $('pwMsg').textContent = 'As duas senhas não são iguais.'; return; }
+  if (senhaDoLogin && s1 === senhaDoLogin) { $('pwMsg').textContent = 'Escolha uma senha diferente da atual.'; return; }
+  $('pwBtn').disabled = true; $('pwMsg').textContent = 'Salvando…';
+  const { error } = await sb.auth.updateUser({ password: s1, data: { senha_trocada: true } });
+  $('pwBtn').disabled = false;
+  if (error) {
+    $('pwMsg').textContent = /different from the old/i.test(error.message) ? 'Escolha uma senha diferente da atual.'
+      : /weak|short|characters/i.test(error.message) ? 'Senha fraca. Use pelo menos 8 caracteres, misturando letras e números.'
+      : 'Não foi possível salvar a senha: ' + error.message;
+    return;
+  }
+  senhaDoLogin = null; $('pwSenha1').value = ''; $('pwSenha2').value = '';
+  const { data } = await sb.auth.getSession();
+  $('novaSenha').hidden = true;
+  if (trocaVoluntaria) { $('app').hidden = false; S.session = data.session; toast('Senha alterada'); }
+  else iniciar(data.session);
+};
+$('pwSair').onclick = async () => {
+  if (trocaVoluntaria) { $('novaSenha').hidden = true; $('app').hidden = false; return; }
+  await sb.auth.signOut(); location.reload();
+};
+$('meBox').onclick = () => { if (S.session) mostrarTrocaSenha(S.session, true); };
 
 /* ---------- shell ---------- */
 const TABS = [['metas', 'Metas'], ['funil', 'Funil'], ['lista', 'Lojas'], ['tarefas', 'Tarefas'], ['gestao', 'Gestão']];
@@ -199,6 +244,7 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-tab]
 function renderMe() {
   const p = S.eu; const nome = p ? p.nome : (S.session && S.session.user.email) || '';
   $('meBox').innerHTML = `<span class="avatar">${esc((nome || '?').trim().charAt(0).toUpperCase())}</span><span class="nmtxt"></span>${p ? `<span class="role">${PAPEIS[p.papel]}</span>` : ''}`;
+  $('meBox').title = 'Trocar senha'; $('meBox').style.cursor = 'pointer';
   $('meBox').querySelector('.nmtxt').textContent = nome;
 }
 function renderSync() {
@@ -447,7 +493,7 @@ function renderPessoas() {
     const nPr = Object.values(S.pracas).filter(x => p.papel === 'supervisor' ? x.regional === p.regional : p.papel === 'gestor' ? true : x.comercialId === p.id).length;
     return `<div class="member ${p.ativo ? '' : 'off'}"><span class="avatar">${esc(p.nome.charAt(0))}</span><div style="min-width:0"><div class="nm">${esc(p.nome)}</div><div class="hint">${PAPEIS[p.papel]}${p.regional && S.regionais[p.regional] ? ' · ' + esc(S.regionais[p.regional].nome) : ''} · ${nPr} praça${nPr === 1 ? '' : 's'}${p.ativo ? '' : ' · <b>inativo</b>'}</div>
       <input class="field email-in" type="email" data-email="${esc(p.id)}" value="${esc(p.email || '')}" placeholder="e-mail @${esc(DOMINIO)} para liberar o acesso" aria-label="E-mail de ${esc(p.nome)}"></div>
-      <div class="acts">${p.id !== (S.eu && S.eu.id) ? `<button class="btn sm" data-ver="${esc(p.id)}">Ver como</button><button class="btn sm ${p.ativo ? 'danger' : ''}" data-ativo="${esc(p.id)}">${p.ativo ? 'Desativar' : 'Reativar'}</button>` : ''}</div></div>`;
+      <div class="acts">${p.id !== (S.eu && S.eu.id) ? `<button class="btn sm" data-ver="${esc(p.id)}">Ver como</button>${p.email && p.ativo ? `<button class="btn sm" data-reset="${esc(p.id)}" title="Volta a senha para a senha inicial; no próximo acesso a pessoa cria uma nova">Redefinir senha</button>` : ''}<button class="btn sm ${p.ativo ? 'danger' : ''}" data-ativo="${esc(p.id)}">${p.ativo ? 'Desativar' : 'Reativar'}</button>` : ''}</div></div>`;
   }).join('');
 }
 function wireGestao() {
@@ -462,17 +508,30 @@ function wireGestao() {
     const email = $('nsEmail').value.trim().toLowerCase() || null;
     if (email && !emailDaBee(email)) { toast(`Use um e-mail ${DOMINIOS_TXT}.`); return; }
     let id = norm(nome); if (S.pessoas[id]) id += '-' + Date.now().toString(36).slice(-3);
-    try { ok(await sb.from('pessoas').insert({ id, nome, email, papel: $('nsPapel').value, regional_id: $('nsReg').value || null })); toast('Pessoa adicionada'); recarregarLogo(); } catch (err) { toast(erroMsg(err)); }
+    try {
+      ok(await sb.from('pessoas').insert({ id, nome, email, papel: $('nsPapel').value, regional_id: $('nsReg').value || null }));
+      if (email) ok(await sb.rpc('liberar_acesso', { p_pessoa: id }));
+      toast(email ? `Pessoa adicionada. Login liberado com a senha inicial.` : 'Pessoa adicionada'); recarregarLogo();
+    } catch (err) { toast(erroMsg(err)); }
   };
   panels.addEventListener('change', async ev => {
     const t = ev.target; if (!t.dataset.email) return;
     const email = t.value.trim().toLowerCase() || null;
     if (email && !emailDaBee(email)) { toast(`Use um e-mail ${DOMINIOS_TXT}.`); return; }
-    try { ok(await sb.from('pessoas').update({ email }).eq('id', t.dataset.email)); S.pessoas[t.dataset.email].email = email; toast(email ? 'Acesso liberado para ' + email : 'Acesso removido'); } catch (err) { toast(/duplicate|unique/i.test(err.message) ? 'Esse e-mail já está em outra pessoa.' : erroMsg(err)); }
+    try {
+      ok(await sb.from('pessoas').update({ email }).eq('id', t.dataset.email)); S.pessoas[t.dataset.email].email = email;
+      if (email) ok(await sb.rpc('liberar_acesso', { p_pessoa: t.dataset.email }));
+      toast(email ? `Acesso liberado para ${email} com a senha inicial` : 'Acesso removido'); renderPessoas();
+    } catch (err) { toast(/duplicate|unique/i.test(err.message) ? 'Esse e-mail já está em outra pessoa.' : erroMsg(err)); }
   });
   panels.addEventListener('click', async ev => {
     const b = ev.target.closest('button'); if (!b) return;
     if (b.dataset.ver) { S.viewAs = b.dataset.ver; S.fCom = ''; S.fPraca = ''; S.fase = null; S.tab = S.pessoas[S.viewAs].papel === 'comercial' ? 'funil' : 'metas'; render(); window.scrollTo(0, 0); }
+    else if (b.dataset.reset) {
+      const p = S.pessoas[b.dataset.reset];
+      if (!confirm(`Voltar a senha de ${p.nome} para a senha inicial? No próximo acesso, ${p.nome.split(' ')[0]} vai criar uma senha nova.`)) return;
+      try { ok(await sb.rpc('liberar_acesso', { p_pessoa: p.id })); toast(`Senha de ${p.nome} redefinida para a senha inicial`); } catch (err) { toast(erroMsg(err)); }
+    }
     else if (b.dataset.ativo) { const p = S.pessoas[b.dataset.ativo]; try { ok(await sb.from('pessoas').update({ ativo: !p.ativo }).eq('id', p.id)); p.ativo = !p.ativo; renderPessoas(); } catch (err) { toast(erroMsg(err)); } }
   });
   wireImport();
@@ -683,10 +742,12 @@ function ligarRealtime() {
   sb.channel('colmeia').on('postgres_changes', { event: '*', schema: 'public' }, recarregarLogo).subscribe();
 }
 async function iniciar(session) {
-  if (session && S.iniciado) return; S.iniciado = !!session;
+  if (session && S.iniciado) return;
   S.session = session;
-  if (!session) { mostrarLogin(); return; }
-  $('login').hidden = true; $('app').hidden = false;
+  if (!session) { S.iniciado = false; mostrarLogin(); return; }
+  if (precisaTrocarSenha(session)) { mostrarTrocaSenha(session); return; }
+  S.iniciado = true;
+  $('login').hidden = true; $('novaSenha').hidden = true; $('app').hidden = false;
   $('view').innerHTML = '<div class="empty"><span class="hex"></span><h2>Carregando a colmeia…</h2></div>';
   try { await carregar(); render(); ligarRealtime(); }
   catch (e) { console.error(e); $('view').innerHTML = `<div class="empty"><h2>Não foi possível carregar os dados</h2><p>${esc(e.message || e)}</p></div>`; }

@@ -9,7 +9,7 @@ Idioma: toda a interface, mensagens, commits e comentários em **português do B
 
 ## Stack
 - **Frontend:** `index.html` + `assets/*.js` como módulos ES, **sem build e sem framework**. Hospedado no GitHub Pages. supabase-js vem do jsdelivr com versão fixa.
-- **Backend:** Supabase. Login por link no e-mail (magic link) e Postgres com Row Level Security.
+- **Backend:** Supabase. Login por e-mail e senha (sem envio de e-mail) e Postgres com Row Level Security.
 - **Sync:** `scripts/sync.mjs` (Node 22), rodado pelo GitHub Actions todo dia às 09:00 UTC. Lê a base que o script de extração do banco alimenta, de **uma** origem: SharePoint (`scripts/sharepoint.mjs` + `scripts/xlsx.mjs`), Google Sheets (`scripts/gsheets.mjs`) ou API (`BASE_API_URL`). Com duas origens configuradas, o sync falha de propósito.
 - **Testes:** `npm test` (`scripts/*.test.mjs`, sem dependências; simulam o Google e a Microsoft em servidores locais).
 
@@ -49,6 +49,12 @@ Prospecção vira cliente: quando a base traz uma loja sem código conhecido e c
 - Estrutura (`pessoas`, `pracas`, `regionais`) e importação: só gestor ou `service_role`.
 - O gatilho `bloquear_cadastro_externo` em `auth.users` (migração 005) recusa e-mails fora de @beedelivery.com.br ou fora de `pessoas`. O @bee.com.br da migração 001 não existe. O domínio também está em `CONFIG.dominiosEmail`, e os dois precisam bater.
 - E-mails da equipe e do gestor **não** ficam no seed (repositório público no Pages): estão em `supabase/local/acessos-equipe.sql`, que é ignorado pelo git. No seed, `gestao-comercial` vem sem e-mail.
+- **Login (migração 006):**
+  - As contas são criadas por `liberar_acesso(pessoa)` (security definer). O app só permite isso ao gestor; no SQL Editor (`session_user` ≠ authenticator) é livre.
+  - A função insere em `auth.users`/`auth.identities` com a senha inicial (`crypt`, pgcrypto em `extensions`) e `raw_user_meta_data.senha_trocada = false`; se a conta já existe, redefine a senha.
+  - A senha inicial fica em `config_privada` (RLS sem políticas: ninguém lê pelo app). É gravada por `supabase/local/acessos-equipe.sql` e **nunca** deve aparecer no repositório.
+  - No app, enquanto `user_metadata.senha_trocada !== true`, aparece a tela "Crie sua senha"; ela grava `updateUser({ password, data: { senha_trocada: true } })`.
+  - O cadastro aberto ("Allow new users to sign up") fica desligado no Supabase.
 - "Ver como" do gestor é **só simulação no cliente** (filtra dados que o gestor já pode ver).
 
 **Ao mudar o schema:** crie `supabase/migrations/00N_descricao.sql` (idempotente, com `if not exists` / `drop ... if exists`), nunca edite uma migração já aplicada em produção. Teste as políticas com `set role authenticated; set request.jwt.claims = '{"email":"...","role":"authenticated"}';` num Postgres local.
