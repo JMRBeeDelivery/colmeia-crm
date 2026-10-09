@@ -25,9 +25,12 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-      - name: Testar regras de negócio
-        run: node --test scripts/base.test.mjs
+      - name: Testar regras de negócio e leitura da base
+        run: node --test scripts/base.test.mjs scripts/gsheets.test.mjs scripts/sharepoint.test.mjs
 
       - name: Montar site
         env:
@@ -41,7 +44,7 @@ jobs:
           export const CONFIG = {
             supabaseUrl: '${SUPABASE_URL}',
             supabaseAnonKey: '${SUPABASE_ANON_KEY}',
-            dominioEmail: 'bee.com.br',
+            dominiosEmail: ['beedelivery.com.br'],
           };
           JS
             echo "config.js gerado a partir das variáveis do repositório"

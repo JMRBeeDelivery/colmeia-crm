@@ -4,5 +4,6 @@
 export const CONFIG = {
   supabaseUrl: 'https://SEU-PROJETO.supabase.co',
   supabaseAnonKey: 'COLE_AQUI_A_ANON_KEY',
-  dominioEmail: 'bee.com.br',
+  // Domínios de e-mail aceitos no login (o banco confere de novo no gatilho bloquear_cadastro_externo)
+  dominiosEmail: ['beedelivery.com.br'],
 };

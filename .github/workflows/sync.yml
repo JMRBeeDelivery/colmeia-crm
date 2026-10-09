@@ -1,12 +1,17 @@
 # Sync diário da base de lojas → Supabase.
 # Roda todo dia às 06:00 (Brasília) e também pelo botão "Run workflow".
-# Secrets necessários (Settings → Secrets and variables → Actions → Secrets):
-#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BASE_API_URL, BASE_API_TOKEN
+# Lê a base alimentada pelo script de extração do banco. Configure UMA origem:
+# Secrets (Settings → Secrets and variables → Actions → Secrets):
+#   Sempre:        SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+#   SharePoint:    SHAREPOINT_URL, AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET
+#   Google Sheets: GOOGLE_SHEETS_URL, GOOGLE_SERVICE_ACCOUNT_JSON (conteúdo do .json da conta de serviço)
+#   API:           BASE_API_URL, BASE_API_TOKEN
+# Variables (opcionais): SHAREPOINT_ABA, GOOGLE_SHEETS_ABA, BASE_API_HEADER, ATUALIZAR_PRODUZIDO
 name: Sync diário da base
 
 on:
   schedule:
-    - cron: '0 9 * * *'   # 09:00 UTC = 06:00 em Brasília
+    - cron: '0 9 * * *'   # 09:00 UTC = 06:00 em Brasília. O script de extração precisa terminar antes.
   workflow_dispatch:
     inputs:
       simular:
@@ -20,19 +25,27 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest   # se a API só responde na rede da Bee, troque por um runner self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22   # supabase-js 2.117 exige Node 22+
           cache: npm
       - run: npm ci
       - name: Rodar sync
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SHAREPOINT_URL: ${{ secrets.SHAREPOINT_URL }}
+          SHAREPOINT_ABA: ${{ vars.SHAREPOINT_ABA }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          GOOGLE_SHEETS_URL: ${{ secrets.GOOGLE_SHEETS_URL }}
+          GOOGLE_SHEETS_ABA: ${{ vars.GOOGLE_SHEETS_ABA }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           BASE_API_URL: ${{ secrets.BASE_API_URL }}
           BASE_API_TOKEN: ${{ secrets.BASE_API_TOKEN }}
           BASE_API_HEADER: ${{ vars.BASE_API_HEADER }}

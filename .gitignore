@@ -4,3 +4,9 @@ node_modules/
 !.env.exemplo
 .DS_Store
 supabase/.temp/
+# e-mails e dados da equipe (SQL para rodar no Supabase): nunca versionar
+supabase/local/
+# bases reais da Bee (dados de lojas): nunca versionar
+*.xlsx
+*.xlsm
+*.csv

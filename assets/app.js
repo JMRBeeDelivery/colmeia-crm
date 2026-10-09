@@ -1,7 +1,7 @@
 // Colmeia CRM · aplicativo (navegador). Sem build: módulo ES servido pelo GitHub Pages.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { CONFIG } from './config.js';
-import { FASES, classificar as classificarBase, parseEntrada, prepararImportacao, soDigitos as soDig } from './base.js';
+import { FASES, classificar as classificarBase, parseEntrada, prepararImportacao, prepararMetas, somarIndicadores, soDigitos as soDig } from './base.js';
 
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'implicit' } });
 
@@ -9,7 +9,10 @@ const FMAP = Object.fromEntries(FASES.map(f => [f.id, f]));
 const ETAPAS = { novo: 'Novo cadastro', contato: 'Em contato', negociando: 'Negociando', aguardando: 'Aguardando 1ª entrega', perdido: 'Perdido' };
 const TIPOS = { ligacao: ['LIG', 'Ligação'], visita: ['VIS', 'Visita'], whatsapp: ['WPP', 'WhatsApp'], nota: ['NOT', 'Anotação'], sistema: ['SIS', 'Sistema'] };
 const PAPEIS = { gestor: 'Gestor', supervisor: 'Supervisão', comercial: 'Comercial' };
-const DOMINIO = CONFIG.dominioEmail || 'bee.com.br';
+const DOMINIOS = CONFIG.dominiosEmail || [CONFIG.dominioEmail || 'beedelivery.com.br'];
+const DOMINIO = DOMINIOS[0]; // o principal, usado nos exemplos de e-mail
+const emailDaBee = email => DOMINIOS.some(d => email.endsWith('@' + d));
+const DOMINIOS_TXT = DOMINIOS.map(d => '@' + d).join(' ou ');
 
 const S = {
   session: null, eu: null, carregado: false,
@@ -38,10 +41,11 @@ const diaDe = s => { const d = new Date(s); d.setHours(0, 0, 0, 0); return d; };
 const classificar = l => classificarBase(l, new Date());
 
 /* ---------- conversão banco ⇄ app ---------- */
-const deLoja = r => ({ id: r.id, codigo: r.codigo, praca: r.praca_id, nome: r.nome, cnpj: r.cnpj, cidade: r.cidade, bairro: r.bairro, endereco: r.endereco, responsavel: r.responsavel, telefone: r.telefone, origem: r.origem, etapa: r.etapa, dataCadastro: r.data_cadastro, primeiraEntrega: r.primeira_entrega, ultimaEntrega: r.ultima_entrega, entregasMes: r.entregas_mes, entregasMesAnterior: r.entregas_mes_anterior, mesReferencia: r.mes_referencia });
-const dePraca = r => ({ id: r.id, nome: r.nome, uf: r.uf, rotulo: r.rotulo, aliases: r.aliases || [], regional: r.regional_id, comercialId: r.comercial_id, meta: r.meta, produzido: r.produzido, produzidoAte: r.produzido_ate });
+const deLoja = r => ({ id: r.id, codigo: r.codigo, praca: r.praca_id, nome: r.nome, cnpj: r.cnpj, cidade: r.cidade, bairro: r.bairro, endereco: r.endereco, responsavel: r.responsavel, telefone: r.telefone, origem: r.origem, etapa: r.etapa, dataCadastro: r.data_cadastro, primeiraEntrega: r.primeira_entrega, ultimaEntrega: r.ultima_entrega, entregasMes: r.entregas_mes, entregasMesAnterior: r.entregas_mes_anterior, mesReferencia: r.mes_referencia, pedidosMes: r.pedidos_mes, pedidosMesAnterior: r.pedidos_mes_anterior });
+const numOuNulo = v => v == null ? null : +v;
+const dePraca = r => ({ id: r.id, nome: r.nome, uf: r.uf, rotulo: r.rotulo, aliases: r.aliases || [], regional: r.regional_id, comercialId: r.comercial_id, meta: r.meta, metaEmpresas: numOuNulo(r.meta_empresas), metaTaxa: numOuNulo(r.meta_taxa_sucesso), produzido: r.produzido, produzidoAte: r.produzido_ate });
 const dePessoa = r => ({ id: r.id, nome: r.nome, email: r.email, papel: r.papel, regional: r.regional_id, ativo: r.ativo });
-const CAMPO_PRACA = { comercialId: 'comercial_id', regional: 'regional_id', meta: 'meta', produzido: 'produzido', produzidoAte: 'produzido_ate' };
+const CAMPO_PRACA = { comercialId: 'comercial_id', regional: 'regional_id', meta: 'meta', metaEmpresas: 'meta_empresas', metaTaxa: 'meta_taxa_sucesso', produzido: 'produzido', produzidoAte: 'produzido_ate' };
 
 async function buscarTudo(tabela, select = '*', ordem) {
   const out = []; const passo = 1000;
@@ -91,6 +95,28 @@ function statusMeta(pj) {
   if (pj.projPct >= 1) return `<span class="chip good">No ritmo</span>`;
   if (pj.projPct >= .85) return `<span class="chip hl">Atenção</span>`;
   return `<span class="chip warn">Abaixo do ritmo</span>`;
+}
+/** Empresas com entregas e dados da taxa de sucesso realizados por praça, a partir das lojas carregadas. */
+function realizadoPorPraca() {
+  const out = {}; const cur = mesKey(hoje());
+  for (const l of S.lojas.values()) {
+    const o = out[l.praca] ||= { empresas: 0, entregasTaxa: 0, pedidos: 0 };
+    if (classificar(l).atual > 0) o.empresas++;
+    if (l.pedidosMes != null && l.mesReferencia === cur) { o.entregasTaxa += +l.entregasMes || 0; o.pedidos += +l.pedidosMes || 0; }
+  }
+  return out;
+}
+const indicadores = (p, real) => ({ meta: p.meta ? +p.meta : null, metaEmpresas: p.metaEmpresas, metaTaxa: p.metaTaxa, ...(real[p.id] || { empresas: 0, entregasTaxa: 0, pedidos: 0 }) });
+const pct1 = x => x == null ? '—' : (x * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+function empresasHTML(e, metaEmp) {
+  if (metaEmp == null) return `<span class="num">${nf(e)}</span>`;
+  const r = metaEmp ? e / metaEmp : null;
+  return `<span class="num">${nf(e)}</span><span class="hint"> / ${nf(Math.round(metaEmp))} · <span class="${r >= 1 ? 'up' : ''}">${pctf(r)}</span></span>`;
+}
+function taxaHTML(taxa, metaTaxa) {
+  const meta = metaTaxa != null ? `<span class="hint"> / ${pct1(metaTaxa)}</span>` : '';
+  if (taxa == null) return metaTaxa != null ? `<span class="hint" title="A base ainda não traz pedidos">sem dado</span>${meta}` : '<span class="hint">—</span>';
+  return `<span class="num ${metaTaxa != null ? (taxa >= metaTaxa ? 'up' : 'down') : ''}">${pct1(taxa)}</span>${meta}`;
 }
 function meterHTML(pj) {
   if (!pj.meta) return '<span class="hint">—</span>';
@@ -147,7 +173,7 @@ function mostrarLogin(msg) {
 $('lForm').onsubmit = async e => {
   e.preventDefault();
   const email = $('lEmail').value.trim().toLowerCase();
-  if (!email.endsWith('@' + DOMINIO)) { $('lMsg').textContent = `Use seu e-mail @${DOMINIO}.`; return; }
+  if (!emailDaBee(email)) { $('lMsg').textContent = `Use seu e-mail ${DOMINIOS_TXT}.`; return; }
   $('lBtn').disabled = true; $('lMsg').textContent = 'Enviando…';
   const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
   $('lBtn').disabled = false;
@@ -210,10 +236,10 @@ $('fBusca').oninput = e => { S.busca = e.target.value; renderView(); };
 
 function renderCounters() {
   const ls = lojasFiltradas({ semBusca: true }); const cnt = {}, soma = {};
-  FASES.forEach(f => { cnt[f.id] = 0; soma[f.id] = 0; });
-  ls.forEach(l => { const c = classificar(l); cnt[c.fase]++; soma[c.fase] += c.atual; });
+  FASES.forEach(f => { cnt[f.id] = 0; soma[f.id] = 0; }); let soCanc = 0;
+  ls.forEach(l => { const c = classificar(l); cnt[c.fase]++; soma[c.fase] += c.atual; if (c.soCancelamentos) soCanc++; });
   $('counters').innerHTML = FASES.map(f => {
-    const sub = f.id === 'prospeccao' ? 'lojas em negociação' : f.id === 'inativo' ? 'a reativar' : nf(soma[f.id]) + ' entregas no mês';
+    const sub = f.id === 'prospeccao' ? 'lojas em negociação' : f.id === 'inativo' ? (soCanc ? `${nf(soCanc)} só com cancelamentos` : 'a reativar') : nf(soma[f.id]) + ' entregas no mês';
     return `<button class="ctr" style="--c:${f.c}" data-fase="${f.id}" aria-pressed="${S.fase === f.id}"><span class="lbl"><span class="hex"></span>${f.nome}</span><span class="val">${nf(cnt[f.id])}</span><span class="sub">${sub}</span></button>`;
   }).join('');
 }
@@ -234,11 +260,16 @@ function viewMetas() {
   const tProd = ps.reduce((s, p) => s + (+p.produzido || 0), 0);
   const tProj = comMeta.reduce((s, p) => s + (projecao(p).proj || 0), 0);
   const ref = ps.map(p => p.produzidoAte).filter(Boolean).sort().pop();
+  const real = realizadoPorPraca();
+  const ind = ps => somarIndicadores(ps.map(p => indicadores(p, real)));
+  const tI = ind(ps); const tEmpMeta = ind(ps.filter(p => p.metaEmpresas != null));
   const tiles = `<div class="tiles">
     <div class="tile"><span>Meta do mês</span><b>${nf(tMeta)}</b><small>corridas · ${comMeta.length} de ${ps.length} praças com meta</small></div>
     <div class="tile"><span>Produzido</span><b>${nf(tProd)}</b><small>até ${fmtDM(ref)}</small></div>
     <div class="tile"><span>Atingido</span><b>${tMeta ? pctf(tProdMeta / tMeta) : '—'}</b><small>das praças com meta</small></div>
-    <div class="tile"><span>Projeção do mês</span><b>${tMeta ? pctf(tProj / tMeta) : '—'}</b><small>${nf(tProj)} corridas no ritmo atual</small></div></div>`;
+    <div class="tile"><span>Projeção do mês</span><b>${tMeta ? pctf(tProj / tMeta) : '—'}</b><small>${nf(tProj)} corridas no ritmo atual</small></div>
+    <div class="tile"><span>Empresas com entregas</span><b>${nf(tI.empresas)}</b><small>${tEmpMeta.metaEmpresas ? `${pctf(tEmpMeta.empresas / tEmpMeta.metaEmpresas)} da meta de ${nf(Math.round(tEmpMeta.metaEmpresas))}` : 'sem meta'}</small></div>
+    <div class="tile"><span>Taxa de sucesso</span><b>${pct1(tI.taxa)}</b><small>${tI.metaTaxa != null ? `meta ${pct1(tI.metaTaxa)}` : 'sem meta'}${tI.taxa == null ? ' · a base ainda não traz pedidos' : ''}</small></div></div>`;
   let groups = [];
   if (papel === 'gestor') {
     Object.values(S.regionais).sort((a, b) => byPt(a.nome, b.nome)).forEach(r => groups.push({ tit: r.nome, sub: r.supervisorId ? nomePessoa(r.supervisorId) + ' (supervisão)' : 'Sem supervisor', ps: ps.filter(p => p.regional === r.id) }));
@@ -251,12 +282,15 @@ function viewMetas() {
   const ord = a => a.slice().sort((x, y) => (+y.meta || -1) - (+x.meta || -1) || (+y.produzido || 0) - (+x.produzido || 0));
   const body = groups.map(g => {
     const gm = g.ps.filter(p => p.meta); const m = gm.reduce((s, p) => s + +p.meta, 0), pr = gm.reduce((s, p) => s + (+p.produzido || 0), 0), pj = gm.reduce((s, p) => s + (projecao(p).proj || 0), 0);
-    const rows = ord(g.ps).map(p => { const x = projecao(p); return `<tr data-praca="${esc(p.id)}"><td><b>${esc(p.rotulo)}</b></td>${papel !== 'comercial' ? `<td>${p.comercialId ? esc(nomePessoa(p.comercialId)) : '<span class="hint">—</span>'}</td>` : ''}<td class="r num">${p.meta ? nf(p.meta) : '—'}</td><td class="r num">${nf(x.prod)}</td><td>${meterHTML(x)}</td><td class="r num">${x.proj != null ? nf(x.proj) : '—'}</td><td class="r num">${x.ritmo != null ? nf(x.ritmo) : '—'}</td><td>${statusMeta(x)}</td></tr>`; }).join('');
-    const cards = ord(g.ps).map(p => { const x = projecao(p); return `<button class="mcard" data-praca="${esc(p.id)}"><div class="hd"><b>${esc(p.rotulo)}</b>${statusMeta(x)}</div>${papel !== 'comercial' && p.comercialId ? `<span class="hint">${esc(nomePessoa(p.comercialId))}</span>` : ''}${meterHTML(x)}<div class="nums"><span>Meta<b>${p.meta ? nf(p.meta) : '—'}</b></span><span>Produzido<b>${nf(x.prod)}</b></span><span>Precisa/dia<b>${x.ritmo != null ? nf(x.ritmo) : '—'}</b></span></div></button>`; }).join('');
-    return `<section class="mgroup"><h2>${esc(g.tit)} ${g.sub ? `<small>${esc(g.sub)}</small>` : ''}</h2><div class="gsum">${g.ps.length} praça${g.ps.length > 1 ? 's' : ''}${m ? ` · meta ${nf(m)} · produzido ${nf(pr)} (${pctf(pr / m)}) · projeção ${pctf(pj / m)}` : ''}</div>
-      <div class="tbl-wrap"><table><thead><tr><th>Praça</th>${papel !== 'comercial' ? '<th>Comercial</th>' : ''}<th class="r">Meta</th><th class="r">Produzido</th><th>Atingido</th><th class="r">Projeção</th><th class="r">Precisa/dia</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div><div class="mcards">${cards}</div></section>`;
+    const gi = ind(g.ps.filter(p => p.metaEmpresas != null)), gt = ind(g.ps);
+    const rows = ord(g.ps).map(p => { const x = projecao(p), i = indicadores(p, real), t = i.pedidos ? i.entregasTaxa / i.pedidos : null; return `<tr data-praca="${esc(p.id)}"><td><b>${esc(p.rotulo)}</b></td>${papel !== 'comercial' ? `<td>${p.comercialId ? esc(nomePessoa(p.comercialId)) : '<span class="hint">—</span>'}</td>` : ''}<td class="r num">${p.meta ? nf(p.meta) : '—'}</td><td class="r num">${nf(x.prod)}</td><td>${meterHTML(x)}</td><td class="r num">${x.proj != null ? nf(x.proj) : '—'}</td><td class="r num">${x.ritmo != null ? nf(x.ritmo) : '—'}</td><td>${empresasHTML(i.empresas, i.metaEmpresas)}</td><td>${taxaHTML(t, i.metaTaxa)}</td><td>${statusMeta(x)}</td></tr>`; }).join('');
+    const cards = ord(g.ps).map(p => { const x = projecao(p), i = indicadores(p, real), t = i.pedidos ? i.entregasTaxa / i.pedidos : null; return `<button class="mcard" data-praca="${esc(p.id)}"><div class="hd"><b>${esc(p.rotulo)}</b>${statusMeta(x)}</div>${papel !== 'comercial' && p.comercialId ? `<span class="hint">${esc(nomePessoa(p.comercialId))}</span>` : ''}${meterHTML(x)}<div class="nums"><span>Meta<b>${p.meta ? nf(p.meta) : '—'}</b></span><span>Produzido<b>${nf(x.prod)}</b></span><span>Precisa/dia<b>${x.ritmo != null ? nf(x.ritmo) : '—'}</b></span><span>Empresas<b>${nf(i.empresas)}${i.metaEmpresas != null ? `<small class="hint"> / ${nf(Math.round(i.metaEmpresas))}</small>` : ''}</b></span><span>Taxa de sucesso<b>${pct1(t)}${i.metaTaxa != null ? `<small class="hint"> / ${pct1(i.metaTaxa)}</small>` : ''}</b></span></div></button>`; }).join('');
+    const sumEmp = gi.metaEmpresas ? ` · empresas ${nf(gi.empresas)} de ${nf(Math.round(gi.metaEmpresas))}` : '';
+    const sumTaxa = gt.metaTaxa != null ? ` · taxa ${gt.taxa != null ? pct1(gt.taxa) : 'sem dado'} (meta ${pct1(gt.metaTaxa)})` : '';
+    return `<section class="mgroup"><h2>${esc(g.tit)} ${g.sub ? `<small>${esc(g.sub)}</small>` : ''}</h2><div class="gsum">${g.ps.length} praça${g.ps.length > 1 ? 's' : ''}${m ? ` · meta ${nf(m)} · produzido ${nf(pr)} (${pctf(pr / m)}) · projeção ${pctf(pj / m)}` : ''}${sumEmp}${sumTaxa}</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Praça</th>${papel !== 'comercial' ? '<th>Comercial</th>' : ''}<th class="r">Meta</th><th class="r">Produzido</th><th>Atingido</th><th class="r">Projeção</th><th class="r">Precisa/dia</th><th title="Lojas com ao menos uma entrega no mês: realizado / meta · % da meta">Empresas</th><th title="Entregas finalizadas ÷ pedidos: realizado / meta">Taxa de sucesso</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div><div class="mcards">${cards}</div></section>`;
   }).join('');
-  return tiles + body + `<p class="hint" style="padding-bottom:24px">Projeção = produzido ÷ dias corridos até a data da produção × dias do mês. "Precisa/dia" é quanto falta por dia para bater a meta. Toque numa praça para ver o funil dela.</p>`;
+  return tiles + body + `<p class="hint" style="padding-bottom:24px">Projeção = produzido ÷ dias corridos até a data da produção × dias do mês. "Precisa/dia" é quanto falta por dia para bater a meta. Empresas com entregas = lojas com ao menos uma entrega no mês. Taxa de sucesso = entregas finalizadas ÷ pedidos, ponderada pelos pedidos nos totais; aparece quando a base traz pedidos ou cancelamentos. Toque numa praça para ver o funil dela.</p>`;
 }
 
 /* ---------- Funil / Lojas / Tarefas ---------- */
@@ -264,17 +298,27 @@ function cardHTML(l) {
   const c = classificar(l); const uc = ultimoContato(l.id); const ta = tarefasAbertas(l.id).length; const chips = [];
   if (c.fase === 'prospeccao') chips.push(`<span class="chip hl">${esc(ETAPAS[l.etapa || 'novo'])}</span>`);
   if (c.fase === 'ativacao') chips.push(`<span class="chip good">${c.diasRest} dias de ativação</span>`);
-  if (c.fase === 'inativo') chips.push(c.longo ? `<span class="chip warn">Sem entregas há 2+ meses</span>` : `<span class="chip warn">Parou este mês</span>`);
+  if (c.fase === 'inativo') {
+    // Loja inativa com pedidos cancelados: tentou pedir e não conseguiu. O volume aparece no número em destaque
+    // (só cancelamentos) ou num chip (parou este mês e cancelou pedidos neste mês).
+    if (c.soCancelamentos) chips.push(`<span class="chip warn">Só cancelamentos</span>`);
+    else chips.push(c.longo ? `<span class="chip warn">Sem entregas há 2+ meses</span>` : `<span class="chip warn">Parou este mês</span>`);
+    if (!c.soCancelamentos && c.cancelados > 0) chips.push(`<span class="chip warn">${nf(c.cancelados)} cancelada${c.cancelados === 1 ? '' : 's'} no mês</span>`);
+  }
   if (uc) { const d = dias(hoje(), diaDe(uc)); chips.push(`<span class="chip ${d > 14 ? 'warn' : ''}">Contato ${relDias(d)}</span>`); } else chips.push(`<span class="chip warn">Sem contato registrado</span>`);
   if (ta) chips.push(`<span class="chip">${ta} tarefa${ta > 1 ? 's' : ''}</span>`);
   let nums = '';
-  if (c.fase !== 'prospeccao') { const dlt = c.atual - c.ant; const cls = dlt > 0 ? 'up' : dlt < 0 ? 'down' : ''; nums = `<div class="row"><span class="big">${nf(c.atual)}</span><span class="cmp">entregas no mês · <span class="${cls}">${nf(c.ant)} no anterior</span></span></div>`; }
+  if (c.soCancelamentos) {
+    const det = [c.cancelados ? `${nf(c.cancelados)} no mês` : '', c.canceladosAnt ? `${nf(c.canceladosAnt)} no anterior` : ''].filter(Boolean).join(' · ');
+    nums = `<div class="row"><span class="big down">${nf(c.cancelados2m)}</span><span class="cmp">cancelado${c.cancelados2m === 1 ? '' : 's'} · ${det}</span></div>`;
+  } else if (c.fase !== 'prospeccao') { const dlt = c.atual - c.ant; const cls = dlt > 0 ? 'up' : dlt < 0 ? 'down' : ''; nums = `<div class="row"><span class="big">${nf(c.atual)}</span><span class="cmp">entregas no mês · <span class="${cls}">${nf(c.ant)} no anterior</span></span></div>`; }
   return `<button class="card" data-loja="${esc(l.id)}"><span class="t">${esc(l.nome)}</span><span class="loc">${esc([l.bairro, nomePraca(l.praca)].filter(Boolean).join(' · '))}</span>${nums}<span class="chips">${chips.join('')}</span></button>`;
 }
 function ordenarFase(arr) {
   return arr.sort((a, b) => {
     const ca = classificar(a), cb = classificar(b);
-    if (ca.fase === 'inativo') return cb.ant - ca.ant;
+    // Inativos: maior demanda primeiro (entregas do mês anterior + pedidos cancelados nos 2 meses)
+    if (ca.fase === 'inativo') return (cb.ant + (cb.cancelados2m || 0)) - (ca.ant + (ca.cancelados2m || 0));
     if (ca.fase === 'ativacao') return ca.diasRest - cb.diasRest;
     if (ca.fase === 'prospeccao') return (b.dataCadastro || '').localeCompare(a.dataCadastro || '');
     return cb.atual - ca.atual;
@@ -293,14 +337,14 @@ function viewLista() {
   let ls = lojasFiltradas().map(l => ({ l, c: classificar(l), uc: ultimoContato(l.id), ta: tarefasAbertas(l.id).length }));
   if (S.fase) ls = ls.filter(x => x.c.fase === S.fase);
   const k = S.sort.k, d = S.sort.d; const idx = Object.fromEntries(FASES.map((f, i) => [f.id, i]));
-  const val = x => k === 'nome' ? x.l.nome.toLowerCase() : k === 'cidade' ? (nomePraca(x.l.praca) + (x.l.bairro || '')).toLowerCase() : k === 'fase' ? idx[x.c.fase] : k === 'entregasMes' ? x.c.atual : k === 'ant' ? x.c.ant : k === 'ultima' ? (x.l.ultimaEntrega || '') : k === 'contato' ? (x.uc || '') : x.ta;
+  const val = x => k === 'nome' ? x.l.nome.toLowerCase() : k === 'cidade' ? (nomePraca(x.l.praca) + (x.l.bairro || '')).toLowerCase() : k === 'fase' ? idx[x.c.fase] : k === 'entregasMes' ? x.c.atual : k === 'ant' ? x.c.ant : k === 'canc' ? (x.c.cancelados2m ?? -1) : k === 'ultima' ? (x.l.ultimaEntrega || '') : k === 'contato' ? (x.uc || '') : x.ta;
   ls.sort((a, b) => { const va = val(a), vb = val(b); return (va > vb ? 1 : va < vb ? -1 : 0) * d; });
   const th = (key, lab, r) => `<th class="${r ? 'r' : ''}"><button data-sort="${key}">${lab}${S.sort.k === key ? (S.sort.d > 0 ? ' ↑' : ' ↓') : ''}</button></th>`;
   const filtro = S.fase ? `<p class="hint" style="margin:0 0 10px">Filtrando pela fase <b>${FMAP[S.fase].nome}</b> · <button class="linkish" id="limpaFase">mostrar todas</button></p>` : '';
   if (!ls.length) return filtro + `<div class="empty"><h2>Nenhuma loja encontrada</h2><p>Ajuste a busca ou os filtros.</p></div>`;
-  const rows = ls.map(({ l, c, uc, ta }) => `<tr data-loja="${esc(l.id)}"><td><b>${esc(l.nome)}</b></td><td>${esc(nomePraca(l.praca))}<span class="hint"> · ${esc(l.bairro || '')}</span></td><td><span class="phase" style="--c:${FMAP[c.fase].c}"><span class="hex"></span>${FMAP[c.fase].nome}</span></td><td class="r num">${c.fase === 'prospeccao' ? '—' : nf(c.atual)}</td><td class="r num">${c.fase === 'prospeccao' ? '—' : nf(c.ant)}</td><td class="num">${fmtD(l.ultimaEntrega)}</td><td>${uc ? relDias(dias(hoje(), diaDe(uc))) : '<span class="down">nunca</span>'}</td><td class="r num">${ta || ''}</td></tr>`).join('');
+  const rows = ls.map(({ l, c, uc, ta }) => `<tr data-loja="${esc(l.id)}"><td><b>${esc(l.nome)}</b></td><td>${esc(nomePraca(l.praca))}<span class="hint"> · ${esc(l.bairro || '')}</span></td><td><span class="phase" style="--c:${FMAP[c.fase].c}"><span class="hex"></span>${FMAP[c.fase].nome}</span></td><td class="r num">${c.fase === 'prospeccao' ? '—' : nf(c.atual)}</td><td class="r num">${c.fase === 'prospeccao' ? '—' : nf(c.ant)}</td><td class="r num ${c.soCancelamentos ? 'down' : ''}" title="${c.cancelados2m != null ? `${nf(c.cancelados || 0)} no mês · ${nf(c.canceladosAnt || 0)} no anterior` : 'A base não traz cancelamentos'}">${c.cancelados2m != null ? nf(c.cancelados2m) : '—'}</td><td class="num">${fmtD(l.ultimaEntrega)}</td><td>${uc ? relDias(dias(hoje(), diaDe(uc))) : '<span class="down">nunca</span>'}</td><td class="r num">${ta || ''}</td></tr>`).join('');
   const cards = ls.slice(0, 300).map(({ l }) => cardHTML(l)).join('');
-  return filtro + `<div class="tbl-wrap"><table><thead><tr>${th('nome', 'Loja')}${th('cidade', 'Praça · bairro')}${th('fase', 'Fase')}${th('entregasMes', 'Entregas mês', 1)}${th('ant', 'Mês anterior', 1)}${th('ultima', 'Última entrega')}${th('contato', 'Último contato')}${th('tarefas', 'Tarefas', 1)}</tr></thead><tbody>${rows}</tbody></table></div><div class="mlist">${cards}</div>`;
+  return filtro + `<div class="tbl-wrap"><table><thead><tr>${th('nome', 'Loja')}${th('cidade', 'Praça · bairro')}${th('fase', 'Fase')}${th('entregasMes', 'Entregas mês', 1)}${th('ant', 'Mês anterior', 1)}${th('canc', 'Canceladas', 1)}${th('ultima', 'Última entrega')}${th('contato', 'Último contato')}${th('tarefas', 'Tarefas', 1)}</tr></thead><tbody>${rows}</tbody></table></div><div class="mlist">${cards}</div>`;
 }
 function viewTarefas() {
   const ids = new Set(lojasFiltradas().map(l => l.id)); const t0 = iso(hoje()); const all = [];
@@ -327,7 +371,15 @@ function viewGestao() {
   return `<div class="panels">
   <section class="panel" style="grid-column:1/-1">
     <h2>Estrutura e metas</h2>
-    <p>Defina a supervisão de cada regional, o comercial responsável e a meta de corridas de cada praça. As alterações salvam na hora.</p>
+    <p>Defina a supervisão de cada regional, o comercial responsável e as metas de cada praça (corridas, empresas com entregas e taxa de sucesso). As alterações salvam na hora.</p>
+    <details id="metasImp"><summary>Importar metas do mês</summary>
+      <div class="form" style="margin-top:8px">
+        <p class="hint">Na planilha de metas, selecione a aba do mês com o cabeçalho (CIDADE, Entregas Finalizadas, Empresas com Entregas, Taxa de Sucesso), copie e cole aqui. Praças marcadas com "–" ficam sem meta. As que não estiverem na planilha não mudam.</p>
+        <textarea class="field" id="metTxt" placeholder="Cole aqui as linhas copiadas da planilha de metas"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="metPrev" type="button">Conferir metas</button><button class="btn primary" id="metGo" type="button" disabled>Aplicar metas</button></div>
+        <div id="metOut"></div>
+      </div>
+    </details>
     <div id="estrutura"></div>
     <details><summary>Adicionar praça</summary>
       <form class="form" id="fPracaNova" style="margin-top:8px"><div class="linha-add">
@@ -348,10 +400,10 @@ function viewGestao() {
   </section>
   <section class="panel">
     <h2>Base diária</h2>
-    <p>A base é atualizada automaticamente todo dia pelo GitHub Actions. Use a importação manual para testes ou para corrigir um dia que falhou.</p>
+    <p>A base é atualizada automaticamente todo dia às 06:00${s && s.fonte ? ` (origem: ${esc(s.fonte)})` : ''}. Use a importação manual para testes ou para corrigir um dia que falhou.</p>
     <div class="kv"><div><span>Última carga</span><b>${s ? esc(fmtDT(s.executado_em)) : '—'}</b></div><div><span>Lojas na carga</span><b>${s ? nf(s.total) : '—'}</b></div><div><span>Novas</span><b>${s ? nf(s.novos) : '—'}</b></div></div>
-    <label class="form"><span class="hint" style="font-weight:600">Arquivo exportado da API (JSON ou CSV)</span><input type="file" id="impFile" accept=".json,.csv,.txt,application/json,text/csv" class="field" style="padding-top:6px"></label>
-    <textarea class="field" id="impTxt" placeholder="…ou cole aqui o JSON / CSV retornado pela API"></textarea>
+    <label class="form"><span class="hint" style="font-weight:600">Arquivo da base (CSV baixado da planilha ou JSON)</span><input type="file" id="impFile" accept=".json,.csv,.txt,application/json,text/csv" class="field" style="padding-top:6px"></label>
+    <textarea class="field" id="impTxt" placeholder="…ou cole aqui as linhas copiadas da planilha, com o cabeçalho"></textarea>
     <label class="hint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="impProd" checked> Recalcular o produzido das praças com a soma das lojas</label>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="impPrev">Conferir dados</button><button class="btn primary" id="impGo" disabled>Aplicar atualização</button></div>
     <div id="impOut"></div>
@@ -365,15 +417,24 @@ function renderEstrutura() {
   box.innerHTML = grupos.filter(g => g.r || g.ps.length).map(({ r, ps }) => {
     ps.sort((a, b) => (+b.meta || -1) - (+a.meta || -1) || byPt(a.rotulo, b.rotulo));
     const head = r ? `<div class="rg-head"><b>${esc(r.nome)}</b><span class="hint">Supervisão</span><select data-reg-sup="${esc(r.id)}" aria-label="Supervisão da ${esc(r.nome)}">${optPessoas('supervisor', r.supervisorId, 'Sem supervisor')}</select><span class="hint">${ps.length} praças</span></div>` : `<div class="rg-head"><b>Sem regional</b><span class="hint">${ps.length} praças</span></div>`;
-    const rows = ps.map(p => `<tr><td><b>${esc(p.rotulo)}</b></td><td><select data-pf="comercialId" data-pid="${esc(p.id)}" aria-label="Comercial">${optPessoas('comercial', p.comercialId, '— sem comercial —')}</select></td><td><select data-pf="regional" data-pid="${esc(p.id)}" aria-label="Regional">${optRegionais(p.regional)}</select></td><td><input type="number" min="0" data-pf="meta" data-pid="${esc(p.id)}" value="${p.meta != null ? esc(p.meta) : ''}" placeholder="sem meta" aria-label="Meta"></td><td><input type="number" min="0" data-pf="produzido" data-pid="${esc(p.id)}" value="${p.produzido != null ? esc(p.produzido) : ''}" aria-label="Produzido"></td><td><input type="date" data-pf="produzidoAte" data-pid="${esc(p.id)}" value="${esc(p.produzidoAte || '')}" aria-label="Produzido até"></td></tr>`).join('');
-    return head + `<div class="tbl-wrap edit-tbl"><table><thead><tr><th>Praça</th><th>Comercial</th><th>Regional</th><th>Meta (corridas)</th><th>Produzido</th><th>Até</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const rows = ps.map(p => `<tr><td><b>${esc(p.rotulo)}</b></td><td><select data-pf="comercialId" data-pid="${esc(p.id)}" aria-label="Comercial">${optPessoas('comercial', p.comercialId, '— sem comercial —')}</select></td><td><select data-pf="regional" data-pid="${esc(p.id)}" aria-label="Regional">${optRegionais(p.regional)}</select></td><td><input type="number" min="0" data-pf="meta" data-pid="${esc(p.id)}" value="${p.meta != null ? esc(p.meta) : ''}" placeholder="sem meta" aria-label="Meta de corridas"></td><td><input type="number" min="0" step="any" data-pf="metaEmpresas" data-pid="${esc(p.id)}" value="${p.metaEmpresas != null ? esc(+p.metaEmpresas.toFixed(1)) : ''}" placeholder="sem meta" aria-label="Meta de empresas com entregas"></td><td><input type="number" min="0" max="100" step="0.1" data-pf="metaTaxa" data-pid="${esc(p.id)}" value="${p.metaTaxa != null ? esc(+(p.metaTaxa * 100).toFixed(1)) : ''}" placeholder="sem meta" aria-label="Meta de taxa de sucesso (%)"></td><td><input type="number" min="0" data-pf="produzido" data-pid="${esc(p.id)}" value="${p.produzido != null ? esc(p.produzido) : ''}" aria-label="Produzido"></td><td><input type="date" data-pf="produzidoAte" data-pid="${esc(p.id)}" value="${esc(p.produzidoAte || '')}" aria-label="Produzido até"></td></tr>`).join('');
+    return head + `<div class="tbl-wrap edit-tbl"><table><thead><tr><th>Praça</th><th>Comercial</th><th>Regional</th><th>Meta (corridas)</th><th>Meta empresas</th><th>Meta taxa (%)</th><th>Produzido</th><th>Até</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }).join('');
   box.onchange = async e => {
     const t = e.target;
     try {
       if (t.dataset.regSup !== undefined) { ok(await sb.from('regionais').update({ supervisor_id: t.value || null }).eq('id', t.dataset.regSup)); S.regionais[t.dataset.regSup].supervisorId = t.value || null; toast('Supervisão atualizada'); return; }
       const f = t.dataset.pf, pid = t.dataset.pid; if (!f) return;
-      let v = t.value; if (f === 'meta' || f === 'produzido') v = v === '' ? (f === 'meta' ? null : 0) : Math.max(0, parseInt(v, 10) || 0); else if (!v) v = null;
+      let v = t.value;
+      if (f === 'meta' || f === 'produzido') v = v === '' ? (f === 'meta' ? null : 0) : Math.max(0, parseInt(v, 10) || 0);
+      else if (f === 'metaEmpresas') v = v === '' ? null : Math.max(0, parseFloat(v) || 0);
+      else if (f === 'metaTaxa') {
+        v = v === '' ? null : Math.round(parseFloat(v) * 1e4) / 1e6; // 92,3 (%) → 0,923
+        if (v != null && !(v > 0 && v <= 1)) {
+          const atual = S.pracas[pid].metaTaxa; t.value = atual != null ? +(atual * 100).toFixed(1) : '';
+          toast('Use uma taxa entre 0,1 e 100%.'); return;
+        }
+      } else if (!v) v = null;
       ok(await sb.from('pracas').update({ [CAMPO_PRACA[f]]: v }).eq('id', pid)); S.pracas[pid][f] = v; toast('Salvo: ' + nomePraca(pid));
     } catch (err) { toast(erroMsg(err)); }
   };
@@ -399,14 +460,14 @@ function wireGestao() {
   $('fPessoaNova').onsubmit = async e => {
     e.preventDefault(); const nome = $('nsNome').value.trim(); if (!nome) return;
     const email = $('nsEmail').value.trim().toLowerCase() || null;
-    if (email && !email.endsWith('@' + DOMINIO)) { toast(`Use um e-mail @${DOMINIO}.`); return; }
+    if (email && !emailDaBee(email)) { toast(`Use um e-mail ${DOMINIOS_TXT}.`); return; }
     let id = norm(nome); if (S.pessoas[id]) id += '-' + Date.now().toString(36).slice(-3);
     try { ok(await sb.from('pessoas').insert({ id, nome, email, papel: $('nsPapel').value, regional_id: $('nsReg').value || null })); toast('Pessoa adicionada'); recarregarLogo(); } catch (err) { toast(erroMsg(err)); }
   };
   panels.addEventListener('change', async ev => {
     const t = ev.target; if (!t.dataset.email) return;
     const email = t.value.trim().toLowerCase() || null;
-    if (email && !email.endsWith('@' + DOMINIO)) { toast(`Use um e-mail @${DOMINIO}.`); return; }
+    if (email && !emailDaBee(email)) { toast(`Use um e-mail ${DOMINIOS_TXT}.`); return; }
     try { ok(await sb.from('pessoas').update({ email }).eq('id', t.dataset.email)); S.pessoas[t.dataset.email].email = email; toast(email ? 'Acesso liberado para ' + email : 'Acesso removido'); } catch (err) { toast(/duplicate|unique/i.test(err.message) ? 'Esse e-mail já está em outra pessoa.' : erroMsg(err)); }
   });
   panels.addEventListener('click', async ev => {
@@ -415,6 +476,40 @@ function wireGestao() {
     else if (b.dataset.ativo) { const p = S.pessoas[b.dataset.ativo]; try { ok(await sb.from('pessoas').update({ ativo: !p.ativo }).eq('id', p.id)); p.ativo = !p.ativo; renderPessoas(); } catch (err) { toast(erroMsg(err)); } }
   });
   wireImport();
+  wireMetas();
+}
+function wireMetas() {
+  const txt = $('metTxt'), go = $('metGo'), out = $('metOut'); let plano = null;
+  const fmt = (v, f) => v == null ? 'sem meta' : f === 'taxa' ? pct1(v) : nf(Math.round(v));
+  $('metPrev').onclick = () => {
+    go.disabled = true; plano = null;
+    try {
+      const rows = parseEntrada(txt.value); if (!rows.length) { out.innerHTML = '<p class="hint">Nenhuma linha encontrada.</p>'; return; }
+      const p = prepararMetas(rows, Object.values(S.pracas));
+      // Diferenças só de arredondamento (180,907 × 180,9069767) não contam como mudança
+      const igual = (a, b, casas) => (a == null && b == null) || (a != null && b != null && Math.abs(a - b) < 0.5 * 10 ** -casas);
+      const muda = p.metas.filter(m => { const a = S.pracas[m.praca_id]; return !igual(a.meta, m.meta, 0) || !igual(a.metaEmpresas, m.meta_empresas, 2) || !igual(a.metaTaxa, m.meta_taxa_sucesso, 4); });
+      const comMeta = p.metas.filter(m => m.meta != null).length;
+      const exemplo = muda.slice(0, 5).map(m => { const a = S.pracas[m.praca_id]; return `${a.rotulo}: ${fmt(a.meta)} → ${fmt(m.meta)} corridas · ${fmt(a.metaEmpresas)} → ${fmt(m.meta_empresas)} empresas · ${fmt(a.metaTaxa, 'taxa')} → ${fmt(m.meta_taxa_sucesso, 'taxa')}`; });
+      out.innerHTML = `<div class="kv"><div><span>Praças na planilha</span><b>${nf(p.metas.length)}</b></div><div><span>Com meta</span><b>${nf(comMeta)}</b></div><div><span>Vão mudar</span><b>${nf(muda.length)}</b></div></div>`
+        + (exemplo.length ? `<p class="hint" style="margin-top:8px">${exemplo.map(esc).join('<br>')}${muda.length > 5 ? '<br>…' : ''}</p>` : '')
+        + (p.semPraca.length ? `<p class="down" style="margin-top:8px">Sem praça cadastrada: ${esc(p.semPraca.slice(0, 6).join(', '))}${p.semPraca.length > 6 ? '…' : ''}. Adicione a praça e confira de novo.</p>` : '')
+        + (p.erros.length ? `<p class="down" style="margin-top:8px">${esc(p.erros.slice(0, 3).join('; '))}</p>` : '');
+      plano = muda; go.disabled = !muda.length || p.erros.length > 0;
+    } catch (e) { out.innerHTML = '<p class="down">Não consegui ler as metas. Copie a aba inteira, com o cabeçalho.</p>'; }
+  };
+  go.onclick = async () => {
+    if (!plano) return; go.disabled = true; $('metPrev').disabled = true;
+    try {
+      for (const [i, m] of plano.entries()) {
+        ok(await sb.from('pracas').update({ meta: m.meta, meta_empresas: m.meta_empresas, meta_taxa_sucesso: m.meta_taxa_sucesso }).eq('id', m.praca_id));
+        Object.assign(S.pracas[m.praca_id], { meta: m.meta, metaEmpresas: m.meta_empresas, metaTaxa: m.meta_taxa_sucesso });
+        out.innerHTML = `<p class="hint">Salvando ${i + 1} de ${plano.length}…</p>`;
+      }
+      out.innerHTML = `<p class="up">Metas aplicadas em ${nf(plano.length)} praça${plano.length === 1 ? '' : 's'}.</p>`; txt.value = ''; renderEstrutura();
+    } catch (err) { out.innerHTML = `<p class="down">${esc(erroMsg(err))}</p>`; }
+    $('metPrev').disabled = false; plano = null;
+  };
 }
 function wireImport() {
   const file = $('impFile'), txt = $('impTxt'), go = $('impGo'), out = $('impOut');
@@ -426,23 +521,23 @@ function wireImport() {
       const p = prepararImportacao(rows, Object.values(S.pracas)); S.importPlan = p;
       const codigos = new Set([...S.lojas.values()].map(l => l.codigo).filter(Boolean));
       const novos = p.linhas.filter(l => !codigos.has(l.codigo)).length; const sp = Object.entries(p.semPraca);
-      out.innerHTML = `<div class="kv"><div><span>Lojas válidas</span><b>${nf(p.linhas.length)}</b></div><div><span>Novas (aprox.)</span><b>${nf(novos)}</b></div><div><span>Ignoradas</span><b>${nf(p.erros.length + sp.reduce((s, x) => s + x[1], 0))}</b></div></div>${sp.length ? `<p class="down" style="margin-top:8px">Sem praça cadastrada: ${esc(sp.slice(0, 6).map(x => x[0] + ' (' + x[1] + ')').join(', '))}${sp.length > 6 ? '…' : ''}. Adicione a praça acima e confira de novo.</p>` : ''}${p.erros.length ? `<p class="down" style="margin-top:8px">${esc(p.erros.slice(0, 3).join('; '))}${p.erros.length > 3 ? '…' : ''}</p>` : ''}`;
+      out.innerHTML = `<div class="kv"><div><span>Lojas válidas</span><b>${nf(p.linhas.length)}</b></div><div><span>Novas (aprox.)</span><b>${nf(novos)}</b></div><div><span>Ignoradas</span><b>${nf(p.erros.length + sp.reduce((s, x) => s + x[1], 0))}</b></div></div>${p.franquias ? `<p class="hint" style="margin-top:8px">${nf(p.franquias)} lojas de franquia ficaram de fora: o CRM é só para operações próprias.</p>` : ''}${sp.length ? `<p class="down" style="margin-top:8px">Sem praça cadastrada: ${esc(sp.slice(0, 6).map(x => x[0] + ' (' + x[1] + ')').join(', '))}${sp.length > 6 ? '…' : ''}. Adicione a praça acima e confira de novo.</p>` : ''}${p.erros.length ? `<p class="down" style="margin-top:8px">${esc(p.erros.slice(0, 3).join('; '))}${p.erros.length > 3 ? '…' : ''}</p>` : ''}`;
       go.disabled = !p.linhas.length;
     } catch (e) { out.innerHTML = '<p class="down">Não consegui ler os dados. Confira se é um JSON válido ou um CSV com cabeçalho.</p>'; }
   };
   go.onclick = async () => {
     const p = S.importPlan; if (!p) return; go.disabled = true; $('impPrev').disabled = true;
-    const tot = { total: 0, novos: 0, atualizados: 0, convertidos: 0 }; const lote = 500;
+    const tot = { total: 0, novos: 0, atualizados: 0, convertidos: 0 }; const lote = 500; let emAtivacao = 0;
     out.innerHTML = `<div class="progress"><i id="impBar"></i></div><p class="hint" id="impMsg">Enviando…</p>`;
     try {
       for (let i = 0; i < p.linhas.length; i += lote) {
         const r = ok(await sb.rpc('importar_base', { p_linhas: p.linhas.slice(i, i + lote) }));
-        Object.keys(tot).forEach(k => tot[k] += r[k] || 0);
+        Object.keys(tot).forEach(k => tot[k] += r[k] || 0); emAtivacao += r.em_ativacao || 0;
         $('impBar').style.width = Math.min(100, (i + lote) / p.linhas.length * 100) + '%'; $('impMsg').textContent = `Enviadas ${Math.min(i + lote, p.linhas.length)} de ${p.linhas.length}…`;
       }
       if ($('impProd').checked) ok(await sb.rpc('recalcular_produzido', { p_ate: iso(new Date(Date.now() - 864e5)) }));
-      ok(await sb.from('sync_log').insert({ fonte: 'Importação manual', ...tot, sem_praca: Object.values(p.semPraca).reduce((s, n) => s + n, 0), erros: p.erros.length }));
-      out.innerHTML = `<p class="up">Base aplicada: ${nf(tot.atualizados)} atualizadas, ${nf(tot.novos)} novas, ${nf(tot.convertidos)} prospecções convertidas.</p>`;
+      ok(await sb.from('sync_log').insert({ fonte: 'Importação manual', ...tot, sem_praca: Object.values(p.semPraca).reduce((s, n) => s + n, 0), erros: p.erros.length, detalhes: { franquias_ignoradas: p.franquias, em_ativacao: emAtivacao } }));
+      out.innerHTML = `<p class="up">Base aplicada: ${nf(tot.atualizados)} atualizadas, ${nf(tot.novos)} novas, ${nf(tot.convertidos)} prospecções convertidas, ${nf(emAtivacao)} em Ativação.</p>`;
       recarregarLogo();
     } catch (err) { out.innerHTML = `<p class="down">${esc(erroMsg(err))}</p>`; }
     $('impPrev').disabled = false; S.importPlan = null;
@@ -499,7 +594,7 @@ function renderDrawer() {
   $('dLoc').textContent = [l.bairro, nomePraca(l.praca)].filter(Boolean).join(' · ') + (pc && pc.comercialId ? ' · ' + nomePessoa(pc.comercialId) : '') + (l.codigo ? ' · código ' + l.codigo : ' · cadastro do comercial');
   $('dFacts').innerHTML = c.fase === 'prospeccao'
     ? `<div class="facts"><div><span>Cadastrada em</span><b>${fmtD(l.dataCadastro)}</b></div><div><span>Dias em prospecção</span><b>${l.dataCadastro ? dias(hoje(), parseD(l.dataCadastro)) : '—'}</b></div><div><span>Etapa</span><b style="font-family:var(--body);font-size:13px">${esc(ETAPAS[l.etapa || 'novo'])}</b></div></div>`
-    : `<div class="facts"><div><span>Entregas no mês</span><b>${nf(c.atual)}</b></div><div><span>Mês anterior</span><b>${nf(c.ant)}</b></div><div><span>Variação</span><b class="${c.atual - c.ant >= 0 ? 'up' : 'down'}">${c.atual - c.ant >= 0 ? '+' : ''}${nf(c.atual - c.ant)}</b></div><div><span>1ª entrega</span><b>${fmtD(l.primeiraEntrega)}</b></div><div><span>Última entrega</span><b>${fmtD(l.ultimaEntrega)}</b></div><div><span>${c.fase === 'ativacao' ? 'Ativação termina em' : 'Cliente desde'}</span><b>${c.fase === 'ativacao' ? c.diasRest + ' dias' : fmtD(l.primeiraEntrega || l.dataCadastro)}</b></div></div>`;
+    : `<div class="facts"><div><span>Entregas no mês</span><b>${nf(c.atual)}</b></div><div><span>Mês anterior</span><b>${nf(c.ant)}</b></div><div><span>Variação</span><b class="${c.atual - c.ant >= 0 ? 'up' : 'down'}">${c.atual - c.ant >= 0 ? '+' : ''}${nf(c.atual - c.ant)}</b></div><div><span>1ª entrega</span><b>${fmtD(l.primeiraEntrega)}</b></div><div><span>Última entrega</span><b>${fmtD(l.ultimaEntrega)}</b></div><div><span>${c.fase === 'ativacao' ? 'Ativação termina em' : l.primeiraEntrega ? 'Cliente desde' : 'No CRM desde'}</span><b>${c.fase === 'ativacao' ? c.diasRest + ' dias' : fmtD(l.primeiraEntrega || l.dataCadastro)}</b></div>${c.cancelados2m != null ? `<div><span>Canceladas no mês</span><b class="${c.cancelados ? 'down' : ''}">${c.cancelados != null ? nf(c.cancelados) : '—'}</b></div><div><span>Canceladas mês anterior</span><b class="${c.canceladosAnt ? 'down' : ''}">${c.canceladosAnt != null ? nf(c.canceladosAnt) : '—'}</b></div><div><span>Taxa de sucesso no mês</span><b>${c.cancelados != null && c.atual + c.cancelados ? pct1(c.atual / (c.atual + c.cancelados)) : '—'}</b></div>` : ''}</div>`;
   $('dProsp').hidden = c.fase !== 'prospeccao'; $('dEtapa').value = l.etapa || 'novo';
   const tel = soDig(l.telefone); const addr = [l.endereco, l.bairro, l.cidade].filter(Boolean).join(', ');
   $('dContact').innerHTML = `<div class="ln"><b></b></div>${l.telefone ? `<div class="ln"><span class="num tel"></span><button class="btn sm" id="cpTel" type="button">Copiar</button>${tel.length >= 10 ? `<a target="_blank" rel="noopener" href="https://wa.me/55${tel.replace(/^55/, '')}">Abrir WhatsApp</a>` : ''}</div>` : '<div class="hint">Sem telefone cadastrado</div>'}${addr ? `<div class="ln"><span class="ad"></span><a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}">Mapa</a></div>` : ''}${l.cnpj ? `<div class="hint">CNPJ <span class="num cn"></span></div>` : ''}`;

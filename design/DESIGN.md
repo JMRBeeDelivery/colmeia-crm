@@ -42,9 +42,11 @@ Documento de referência para replicar o visual e as telas do Colmeia CRM. As ca
 | Inativos `--f-inat` | `#C4432A` | `#F07A60` |
 | 1 a 50 `--f-v1` | `#E8C35A` | `#F1D27A` |
 | 51 a 100 `--f-v2` | `#DB9A00` | `#F0B22E` |
-| +100 `--f-v3` | `#A8640A` | `#D98B2B` |
+| 101 a 500 `--f-v3` | `#A8640A` | `#D98B2B` |
+| 501 a 1000 `--f-v4` | `#7A4608` | `#B86A22` |
+| +1000 `--f-v5` | `#5C3405` | `#93521C` |
 
-As três faixas de volume formam uma escala de mel: mel claro, depois âmbar, depois âmbar escuro.
+As cinco faixas de volume formam uma escala de mel que escurece com o volume: mel claro, âmbar, âmbar escuro, marrom-mel e marrom-escuro.
 
 **Tema escuro:** respeita `prefers-color-scheme`. Os tokens são redefinidos em `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {…} }` e também em `:root[data-theme="dark"]`, com `color-scheme: dark`. Os componentes usam só tokens, nunca cores literais.
 
@@ -99,7 +101,7 @@ Na navegação inferior do celular, o hexágono fica cinza (`--line`) quando a a
 | **Barra de ferramentas** | Título da tela (Bricolage 24 px), espaço, selects de filtro (Comercial e Praça), busca e botão primário **+ Nova prospecção**. No celular, título, selects e busca ocupam 100% da largura. |
 | **Botões** | Padrão: fundo `--surface` com borda. Primário: fundo `--accent` com texto `--accent-ink`. Perigo: texto `--danger`. Todos com `:focus-visible` usando contorno de 2 px `--accent`. |
 | **Chips** | Pílula de 11 px, peso 600. Variações: neutro (`--surface-2` com borda), `warn` (`--danger-soft`/`--danger`), `good` (`--ok-soft`/`--ok`) e `hl` (`--accent-soft`/`--accent-text`). |
-| **Contador de fase** | Cartão com rótulo (hexágono + nome em caixa-alta 12 px), valor mono de 26 px e subtexto de 12 px. São seis em linha no desktop e numa grade de 3×2 no celular (rótulo em caixa normal). Clicável; quando selecionado, ganha anel de 2 px na cor da fase. |
+| **Contador de fase** | Cartão com rótulo (hexágono + nome em caixa-alta 12 px), valor mono de 26 px e subtexto de 12 px. São oito: em linha única a partir de 1181 px, em grade de 4×2 entre 761 e 1180 px e em grade de 3 colunas no celular (rótulo em caixa normal). Clicável; quando selecionado, ganha anel de 2 px na cor da fase. |
 | **Cartão de loja** | Nome (700), "Bairro · Praça/UF" (12 px, `--muted`), número de entregas do mês (mono 18 px) + "entregas no mês · N no anterior" (verde se subiu, vermelho se caiu) e chips. Prospecções não mostram números. |
 | **Coluna do funil** | Fundo `--surface-2`, borda e raio 12 px. Cabeçalho com hexágono, nome (Bricolage 15 px) e contagem à direita; abaixo, a descrição da fase em 12 px. A lista rola dentro da coluna e mostra no máximo 80 cartões, com o aviso "+N lojas. Veja todas na aba Lojas." |
 | **Tile de métrica** | Rótulo em caixa-alta, valor mono de 26 px e legenda. Usado só no topo da tela Metas. |
@@ -121,23 +123,28 @@ Cada tela lista o arquivo de captura, o que mostra e como se comporta.
 ### 4.1 Login: `01-login.png`, `02-login-link-enviado.png`, `m1-login.png`
 - Caixa centralizada de 420 px com: logo, título "Entre com seu e-mail da Bee", texto "Enviamos um link de acesso para o seu e-mail. Não precisa de senha.", campo de e-mail de 44 px e botão primário **Receber link de acesso**.
 - Abaixo do botão, uma mensagem de status em `--accent-text`. Casos:
-  - e-mail fora do domínio: "Use seu e-mail @bee.com.br.";
+  - e-mail fora do domínio: "Use seu e-mail @beedelivery.com.br." (placeholder do campo: "nome@beedelivery.com.br");
   - link enviado: "Enviamos um link de acesso para {email}. Abra o e-mail neste aparelho e toque no link.";
   - e-mail não cadastrado: "Este e-mail não está cadastrado na equipe comercial. Fale com o gestor."
 
 ### 4.2 Metas do mês: `03-metas-gestor.png`, `m2-metas-supervisor.png`, `m3-…-rolado.png`, `d1-metas-escuro.png`
 - Tela inicial do gestor e da supervisão. O comercial começa no Funil.
-- **4 tiles:**
+- **6 tiles** (grade 3×2 no desktop, 2 colunas no celular):
   - Meta do mês: "corridas · X de Y praças com meta";
   - Produzido: "até dd/mm";
   - Atingido: "das praças com meta";
-  - Projeção do mês: "N corridas no ritmo atual".
+  - Projeção do mês: "N corridas no ritmo atual";
+  - Empresas com entregas: total de lojas com entrega no mês e "N% da meta de M";
+  - Taxa de sucesso: realizado (uma casa decimal, ex. "89,5%") e "meta 90,9%"; sem pedidos na base, mostra "—" e "a base ainda não traz pedidos".
 - **Agrupamento por perfil:**
   - gestor: por **regional** ("Regional 1 · Lucas Pacheco (supervisão)"), mais o grupo "Sem regional";
   - supervisor: por **comercial**, do maior para o menor em meta;
   - comercial: um grupo "Minhas praças".
-- **Resumo do grupo:** "13 praças · meta 66.612 · produzido 31.754 (48%) · projeção 89%".
-- **Tabela:** Praça · Comercial · Meta · Produzido · Atingido (barra) · Projeção · Precisa/dia · Status. Ordenada por meta, da maior para a menor; praças sem meta vão para o fim.
+- **Resumo do grupo:** "13 praças · meta 66.612 · produzido 31.754 (48%) · projeção 89% · empresas 897 de 976 · taxa 89,5% (meta 91,7%)". A taxa do grupo é ponderada pelos pedidos.
+- **Tabela:** Praça · Comercial · Meta · Produzido · Atingido (barra) · Projeção · Precisa/dia · Empresas · Taxa de sucesso · Status. Ordenada por meta, da maior para a menor; praças sem meta vão para o fim.
+  - Empresas: "344 / 389 · 88%", com o realizado em mono e o resto em `--muted`; o % fica em `--ok` quando ≥ 100%.
+  - Taxa de sucesso: "91,1% / 92,3%", com o realizado em `--ok` se ≥ meta e em `--danger` se abaixo; sem pedidos, "sem dado / 92,3%".
+  - O Status continua baseado só nas corridas.
 - **Status:**
 
   | Chip | Condição |
@@ -149,13 +156,13 @@ Cada tela lista o arquivo de captura, o que mostra e como se comporta.
   | Sem meta (neutro) | praça sem meta |
 
 - Clicar numa praça abre o Funil filtrado por ela.
-- **Celular:** cada praça vira um cartão com nome, status, barra e três números (Meta · Produzido · Precisa/dia).
+- **Celular:** cada praça vira um cartão com nome, status, barra e cinco números em duas linhas: Meta · Produzido · Precisa/dia, e depois Empresas ("344 / 389") · Taxa de sucesso ("91,1% / 92,3%").
 - **Rodapé explicativo:** "Projeção = produzido ÷ dias corridos até a data da produção × dias do mês…"
 
 ### 4.3 Funil: `04-funil-gestor.png`, `m4-funil-comercial.png`, `d2`/`d3`
-- Seis contadores de fase e o quadro com seis colunas, cada uma com no mínimo 240 px e rolagem horizontal no desktop.
+- Oito contadores de fase e o quadro com oito colunas, cada uma com no mínimo 240 px e rolagem horizontal no desktop.
 - **Ordem dos cartões por coluna:**
-  - Inativos: maior volume no mês anterior primeiro;
+  - Inativos: maior demanda primeiro (entregas do mês anterior + pedidos cancelados nos dois meses);
   - Ativação: menos dias restantes primeiro;
   - Prospecção: mais recente primeiro;
   - faixas de volume: mais entregas primeiro.
@@ -163,13 +170,15 @@ Cada tela lista o arquivo de captura, o que mostra e como se comporta.
   - Prospecção mostra a etapa: Novo cadastro, Em contato, Negociando, Aguardando 1ª entrega ou Perdido;
   - Ativação mostra "N dias de ativação";
   - Inativos mostra "Parou este mês" ou "Sem entregas há 2+ meses";
+  - "Só cancelamentos" (`warn`, no lugar de "Sem entregas há 2+ meses"): loja da base sem nenhuma entrega finalizada nos dois meses. O número grande do cartão passa a ser o total de pedidos cancelados, em `--danger`, seguido de "cancelados · N no mês · M no anterior";
+  - "N canceladas no mês" (`warn`): loja que parou de entregar e teve pedido cancelado no mês. Lojas ativas não recebem esse chip (a taxa de cada uma fica na gaveta);
   - último contato: "Contato há N dias", vermelho acima de 14 dias; sem nenhum registro, "Sem contato registrado";
   - tarefas abertas: "N tarefas".
 - **Celular:** os contadores funcionam como abas. Aparece só a coluna da fase tocada (padrão: Prospecção).
 - **Desktop:** clicar num contador rola o quadro até a coluna daquela fase.
 
 ### 4.4 Lojas: `05-lojas-lista.png`, `m6-lojas.png`
-- Tabela ordenável ao clicar no cabeçalho (seta ↑ ↓): Loja · Praça · bairro · Fase (hexágono + nome) · Entregas mês · Mês anterior · Última entrega · Último contato ("nunca" em vermelho) · Tarefas.
+- Tabela ordenável ao clicar no cabeçalho (seta ↑ ↓): Loja · Praça · bairro · Fase (hexágono + nome) · Entregas mês · Mês anterior · Canceladas (soma dos dois meses; em `--danger` nas lojas só com cancelamentos; detalhe por mês no `title`) · Última entrega · Último contato ("nunca" em vermelho) · Tarefas.
 - Filtro por fase vindo do contador: "Filtrando pela fase **X** · mostrar todas".
 - **Celular:** lista de cartões de loja.
 
@@ -180,7 +189,7 @@ Cada tela lista o arquivo de captura, o que mostra e como se comporta.
 ### 4.6 Detalhe da loja (gaveta): `08-detalhe-loja.png`, `09-detalhe-prospeccao.png`, `m5-detalhe-loja.png`, `d4`
 - **Cabeçalho:** fase com hexágono, nome (Bricolage 20 px) e "Bairro · Praça/UF · Comercial · código LJ-…" (ou "cadastro do comercial").
 - **Fatos (grade de 3; 2 no celular):**
-  - cliente: Entregas no mês · Mês anterior · Variação (+/− colorida) · 1ª entrega · Última entrega · "Ativação termina em N dias" ou "Cliente desde";
+  - cliente: Entregas no mês · Mês anterior · Variação (+/− colorida) · 1ª entrega · Última entrega · "Ativação termina em N dias", "Cliente desde" ou, sem a data da 1ª entrega, "No CRM desde". Quando a base traz pedidos, somam-se Canceladas no mês · Canceladas mês anterior (em `--danger` se > 0) · Taxa de sucesso no mês;
   - prospecção: Cadastrada em · Dias em prospecção · Etapa, mais o select **Etapa da prospecção**.
 - **Contato:** responsável, telefone em mono com botões **Copiar** e **Abrir WhatsApp** (link wa.me), endereço com link **Mapa** e CNPJ. Um link **Editar** abre um formulário inline para Responsável, Telefone, Endereço, Bairro e CNPJ.
 - **Tarefas:** lista e linha de inclusão com texto, data e botão **Adicionar**. No celular, o texto ocupa a linha inteira.
@@ -195,7 +204,8 @@ Cada tela lista o arquivo de captura, o que mostra e como se comporta.
 ### 4.8 Gestão (só gestor): `07-gestao.png`
 - **Painel "Estrutura e metas"** (largura total), separado por regional:
   - cabeçalho da regional com select de Supervisão;
-  - tabela editável com Praça · Comercial (select) · Regional (select) · Meta · Produzido · Até (data);
+  - no topo, "Importar metas do mês" em `<details>`: área para colar a aba da planilha, botões **Conferir metas** (mostra quantas praças vão mudar e o antes → depois) e **Aplicar metas**;
+  - tabela editável com Praça · Comercial (select) · Regional (select) · Meta (corridas) · Meta empresas · Meta taxa (%) · Produzido · Até (data);
   - cada alteração salva sozinha e mostra o toast "Salvo: Natal/RN";
   - no fim, "Adicionar praça" em `<details>`.
 - **Painel "Equipe e acessos":**
@@ -220,7 +230,7 @@ Estado vazio com o título "Seu acesso ainda não foi liberado" e a frase "O e-m
   - as abas do topo somem e entra a navegação inferior;
   - o nome do usuário some;
   - o status da base vai para uma linha própria;
-  - os contadores viram grade de 3×2;
+  - os contadores viram grade de 3 colunas (3 linhas para as 8 fases);
   - o funil mostra uma coluna por vez;
   - as tabelas viram cartões;
   - o FAB substitui o botão "+ Nova prospecção";
@@ -248,7 +258,8 @@ Estado vazio com o título "Seu acesso ainda não foi liberado" e a frase "O e-m
 | **Prospecção** | Nunca entregou. |
 | **Ativação** | Menos de 30 dias desde a 1ª entrega. |
 | **Inativos** | 0 entregas no mês atual. |
-| **Faixas de volume** | 1–50, 51–100 e +100 entregas no mês. |
+| **Faixas de volume** | 1–50, 51–100, 101–500, 501–1000 e +1000 entregas no mês. |
+| **Sem entregas há 2+ meses** | Continua em Inativos, com o chip "Sem entregas há 2+ meses". |
 | **Virada de mês** | Se a base ainda está no mês anterior, o número conta como "mês anterior" e o atual começa em 0. |
 | **Projeção** | `produzido ÷ dia(produzido_até) × dias_do_mês`. |
 | **Precisa/dia** | `(meta − produzido) ÷ dias restantes`. |
