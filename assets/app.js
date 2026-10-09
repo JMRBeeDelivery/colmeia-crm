@@ -406,9 +406,14 @@ function viewTarefas() {
 }
 
 /* ---------- Gestão ---------- */
+// papel 'comercial' também lista os supervisores: um supervisor pode tocar uma praça (ex.: Campina Grande).
+// A pessoa já escolhida aparece mesmo se estiver inativa, para o select não fingir "sem comercial".
 function optPessoas(papel, sel, vazio) {
-  const ps = Object.values(S.pessoas).filter(p => p.papel === papel && p.ativo).sort((a, b) => byPt(a.nome, b.nome));
-  return `<option value="">${vazio}</option>` + ps.map(p => `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(p.nome)}</option>`).join('');
+  const papeis = papel === 'comercial' ? ['comercial', 'supervisor'] : [papel];
+  const ps = Object.values(S.pessoas).filter(p => papeis.includes(p.papel) && (p.ativo || p.id === sel))
+    .sort((a, b) => papeis.indexOf(a.papel) - papeis.indexOf(b.papel) || byPt(a.nome, b.nome));
+  const rot = p => p.nome + (!p.ativo ? ' (inativo)' : p.papel !== papel ? ` (${p.papel})` : '');
+  return `<option value="">${vazio}</option>` + ps.map(p => `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(rot(p))}</option>`).join('');
 }
 const optRegionais = sel => `<option value="">Sem regional</option>` + Object.values(S.regionais).sort((a, b) => byPt(a.nome, b.nome)).map(r => `<option value="${esc(r.id)}" ${r.id === sel ? 'selected' : ''}>${esc(r.nome)}</option>`).join('');
 
