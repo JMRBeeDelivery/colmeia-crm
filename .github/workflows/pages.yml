@@ -39,15 +39,20 @@ jobs:
         run: |
           mkdir -p _site
           cp -r index.html manifest.webmanifest assets _site/
-          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+          # Limpa o que costuma vir colado junto: espaços, quebras de linha e o "/rest/v1/" do fim da URL
+          URL=$(printf '%s' "$SUPABASE_URL" | tr -d '[:space:]' | sed -E 's#/rest/v1/?$##; s#/+$##')
+          KEY=$(printf '%s' "$SUPABASE_ANON_KEY" | tr -d '[:space:]')
+          if [ -n "$URL" ] && [ -n "$KEY" ]; then
             cat > _site/assets/config.js <<JS
           export const CONFIG = {
-            supabaseUrl: '${SUPABASE_URL}',
-            supabaseAnonKey: '${SUPABASE_ANON_KEY}',
+            supabaseUrl: '${URL}',
+            supabaseAnonKey: '${KEY}',
             dominiosEmail: ['beedelivery.com.br'],
           };
           JS
-            echo "config.js gerado a partir das variáveis do repositório"
+            echo "config.js gerado a partir das variáveis do repositório (URL: ${URL})"
+          else
+            echo "::warning::Variáveis SUPABASE_URL e SUPABASE_ANON_KEY não definidas: o site vai pedir para configurar o Supabase."
           fi
 
       - uses: actions/configure-pages@v5

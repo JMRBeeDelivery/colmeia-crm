@@ -428,6 +428,15 @@ pre.code{background:var(--surface-2);border:1px solid var(--line);border-radius:
 <div class="toast" id="toast" hidden></div>
 
 </div>
+<script>
+// Se o app não carregar (ex.: assets/config.js com erro), mostra um aviso em vez da tela em branco
+setTimeout(function () {
+  var l = document.getElementById('login'), a = document.getElementById('app');
+  if (!l.hidden || !a.hidden) return;
+  l.hidden = false; document.getElementById('lForm').querySelectorAll('input,button').forEach(function (e) { e.disabled = true; });
+  document.getElementById('lMsg').textContent = 'O CRM não carregou. No GitHub, confira as variáveis SUPABASE_URL (só o endereço, sem /rest/v1/) e SUPABASE_ANON_KEY (numa linha só) e publique de novo.';
+}, 8000);
+</script>
 <script type="module" src="assets/app.js"></script>
 </body>
 </html>
