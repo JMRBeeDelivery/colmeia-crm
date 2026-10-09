@@ -97,7 +97,9 @@ async function main() {
   } else {
     const { createClient } = await import('@supabase/supabase-js');
     if (!env('SUPABASE_URL') || !env('SUPABASE_SERVICE_ROLE_KEY')) throw new Error('Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.');
-    sb = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
+    // Tolera os erros comuns de copiar e colar: espaços/quebras de linha e a URL com /rest/v1/ no fim
+    const url = env('SUPABASE_URL').replace(/\s+/g, '').replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
+    sb = createClient(url, env('SUPABASE_SERVICE_ROLE_KEY').replace(/\s+/g, ''), { auth: { persistSession: false } });
     const { data, error } = await sb.from('pracas').select('id,nome,uf,rotulo,aliases');
     if (error) throw error; pracas = data;
   }
