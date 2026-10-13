@@ -233,6 +233,33 @@ Faixa amarela de largura total abaixo da barra superior com "Você está vendo o
 ### 4.10 Acesso não liberado: `12-acesso-nao-liberado.png`
 Estado vazio com o título "Seu acesso ainda não foi liberado" e a frase "O e-mail {email} não está ligado a ninguém da equipe comercial. Fale com o gestor."
 
+### 4.11 Relatórios (sem captura ainda)
+Aba entre Metas e Funil, para todos os papéis. Usa os filtros de comercial e de praça da barra; sem busca, contadores nem FAB.
+- **Cabeçalho:**
+  - o escopo ("Time todo", a regional do supervisor, "Meu resultado" ou o nome do comercial/praça filtrado);
+  - o link "ver o time todo" (ou "ver a regional toda") quando há filtro;
+  - a linha do período: "Outubro até 12/10 · 12 de 31 dias. A comparação com setembro é proporcional…".
+- **6 tiles**, com uma faixa de 3 px à esquerda na cor do status (`--ok` positivo, `--accent` atenção, `--danger` crítico; o número também ganha a cor no positivo e no crítico):
+  1. Corridas · projeção;
+  2. Corridas até {data}, com "{mês anterior} no mesmo período" e a variação do ritmo diário;
+  3. Empresas com entregas;
+  4. Taxa de sucesso, com o mês anterior em pontos;
+  5. Lojas a recuperar;
+  6. Situação geral.
+- **Dois painéis lado a lado** (um embaixo do outro abaixo de 900 px):
+  - **Destaques**, com faixa superior `--ok`;
+  - **Pontos críticos**, com faixa superior `--danger`.
+
+  Cada item é um cartão por comercial (ou por praça, quando o escopo é de um comercial só), com a borda esquerda na cor do painel e as frases em lista. Os de maior impacto em corridas vêm primeiro. Até 6 cartões; o resto fica em "Ver mais N". Tocar no cartão abre o relatório do comercial ou o funil da praça.
+- **Tabelas** "Por regional" (só gestor), "Por comercial" (ranking pela projeção; tocar filtra o comercial) e "Por praça" (recolhida em `<details>` quando há vários comerciais).
+  - Colunas: Corridas · Meta · Atingido (barra) · Projeção · {mês anterior} prop. · Ritmo · Empresas · Taxa · Taxa vs {mês} · A recuperar · Situação.
+  - Os números usam `.up`/`.down`/`.att` conforme o status.
+  - No celular viram cartões com a barra e 6 números.
+- **Lojas em queda:** as 15 com maior perda contra o esperado proporcional, com as colunas {mês anterior} · Esperado até {data} · Realizado · Queda (chip `warn`). Tocar abre a gaveta da loja.
+- **Rodapé** em `.hint` explicando os cálculos e os limites.
+- **No dia 1 do mês**, estado vazio: "O mês acabou de virar".
+- **Telas médias (761–1100 px):** com 6 abas no topo, o nome e o papel do usuário saem da barra; o avatar continua.
+
 ---
 
 ## 5. Responsividade

@@ -37,6 +37,21 @@ Como cada uma é medida:
 
 Importação mensal das metas: Gestão → "Importar metas do mês", colando a aba da planilha. A leitura fica em `prepararMetas`.
 
+Relatórios (aba `relatorio`, `viewRelatorio` em `app.js`; cálculos em `base.js`):
+- `dataDeCorte`: o maior `produzido_ate` do mês, ou ontem. No dia 1 não há relatório.
+- `numerosPraca` → `somarNumeros` (time, regional ou comercial) → `avaliar`.
+- **Comparação proporcional:** o ritmo diário do mês (corridas ÷ dias com dados) contra o do mês anterior (corridas ÷ dias do mês anterior), só com pelo menos `LIMITES.baseRitmo` corridas no anterior. Empresas comparam com o mês anterior fechado; a taxa compara em pontos.
+- **Status** (`LIMITES`):
+  - projeção: positiva ≥ 100% e crítica < 85%;
+  - empresas: crítica < 90% da meta;
+  - taxa: crítica mais de 2 p.p. abaixo da meta;
+  - ritmo: positivo ≥ +5% e crítico ≤ −10%.
+
+  "Situação" é o pior status entre os indicadores.
+- **Lojas em queda** (`lojasEmQueda`): pelo menos 30 entregas no mês anterior e abaixo de 50% do esperado proporcional.
+- Os textos dos destaques e pontos críticos ficam em `pontosDe` (`app.js`), agrupados por comercial ou praça e ordenados pelas corridas em jogo.
+- Não há histórico diário: a comparação usa só os totais do mês anterior que vêm na base.
+
 Cidade → praça: `indicePracas` / `acharPraca` normalizam acentos e caixa, e aceitam `Cidade`, `Cidade UF`, partes de praças compostas (Belém–Ananindeua) e `pracas.aliases`.
 
 Prospecção vira cliente: quando a base traz uma loja sem código conhecido e com o mesmo CNPJ (só dígitos) de uma prospecção, a prospecção recebe o código (`importar_base`).
