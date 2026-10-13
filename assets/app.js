@@ -2,7 +2,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { CONFIG } from './config.js';
 import { FASES, classificar as classificarBase, parseEntrada, prepararImportacao, prepararMetas, somarIndicadores, soDigitos as soDig,
-  LIMITES, dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda } from './base.js';
+  LIMITES, dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda, FAIXAS_VOLUME, composicaoCarteira } from './base.js';
 
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'implicit' } });
 
@@ -18,7 +18,7 @@ const DOMINIOS_TXT = DOMINIOS.map(d => '@' + d).join(' ou ');
 const S = {
   session: null, eu: null, carregado: false,
   pessoas: {}, pracas: {}, regionais: {}, lojas: new Map(), crm: new Map(), sync: null,
-  viewAs: null, tab: null, fase: null, fCom: '', fPraca: '', busca: '', sort: { k: 'entregasMes', d: -1 }, open: null, importPlan: null,
+  viewAs: null, tab: null, fase: null, fCom: '', fPraca: '', busca: '', sort: { k: 'entregasMes', d: -1 }, open: null, importPlan: null, compBase: 'atual',
 };
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -349,10 +349,14 @@ const sinal = (x, f = pctf) => x == null ? '—' : (x > 0 ? '+' : x < 0 ? '−' 
 const pp = x => (x * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' p.p.';
 const nf0 = x => nf(Math.round(x));
 
-/** Numeros por praça do escopo, com as lojas de cada uma. */
-function numerosDoEscopo(ps) {
+/** Lojas de cada praça do escopo. */
+function lojasPorPraca(ps) {
   const porPraca = new Map(ps.map(p => [p.id, []]));
   for (const l of S.lojas.values()) { const a = porPraca.get(l.praca); if (a) a.push(l); }
+  return porPraca;
+}
+/** Números por praça do escopo. */
+function numerosDoEscopo(ps, porPraca) {
   const h = new Date();
   return new Map(ps.map(p => [p.id, numerosPraca(p, porPraca.get(p.id), h)]));
 }
@@ -416,6 +420,44 @@ function tabelaRel(tit, sub, linhas, mA) {
     <div class="mcards">${cards}</div></section>`;
 }
 
+/* Composição da carteira por faixa de volume (Inativos, 1 a 50 … +1000) */
+const pctComp = (v, tot) => tot ? (v / tot * 100).toLocaleString('pt-BR', { maximumFractionDigits: v / tot < 0.1 ? 1 : 0 }) + '%' : '—';
+function barraComp(c, chave, rotulo) {
+  const tot = c[chave]; const desc = FAIXAS_VOLUME.map(f => `${f.nome} ${pctComp(c.faixas[f.id][chave], tot)}`).join(', ');
+  return `<div class="cbar" role="img" aria-label="${esc(rotulo + ': ' + desc)}">${FAIXAS_VOLUME.map(f => { const v = c.faixas[f.id][chave]; return v && tot ? `<i style="width:${v / tot * 100}%;background:${f.c}" title="${esc(f.nome)}: ${pctComp(v, tot)} (${nf(v)})"></i>` : ''; }).join('')}</div>`;
+}
+function composicaoHTML({ ps, porPraca, corte, mA, mC, regU, unidades }) {
+  const base = S.compBase; const h = new Date();
+  const comp = list => composicaoCarteira(list.flatMap(p => porPraca.get(p.id) || []), { base, corte, hoje: h });
+  const total = comp(ps); const ant = base === 'projecao' ? composicaoCarteira(ps.flatMap(p => porPraca.get(p.id) || []), { base: 'anterior', hoje: h }) : null;
+  const dt = `${pad(corte.getDate())}/${pad(corte.getMonth() + 1)}`;
+  const bases = [['atual', `Mês atual (até ${dt})`], ['projecao', `Projeção de ${mC}`], ['anterior', `${mA[0].toUpperCase() + mA.slice(1)} (fechado)`]];
+  const seg = `<div class="seg" role="group" aria-label="Base da composição">${bases.map(([k, n]) => `<button data-comp="${k}" aria-pressed="${base === k}">${n}</button>`).join('')}</div>`;
+  const expl = { atual: `Faixa pelas entregas de ${mC} até ${dt}, como no funil. No meio do mês, as lojas aparecem em faixas menores do que vão fechar.`,
+    projecao: `Faixa pelas entregas projetadas para o mês inteiro (entregas até ${dt} ÷ ${corte.getDate()} dias × ${new Date(corte.getFullYear(), corte.getMonth() + 1, 0).getDate()}). A variação compara com ${mA} fechado.`,
+    anterior: `Faixa pelas entregas de ${mA}, mês fechado. Lojas que começaram em ${mC} ficam de fora.` }[base];
+  const leg = `<div class="comp-leg">${FAIXAS_VOLUME.map(f => { const x = total.faixas[f.id]; const d = ant && ant.lojas ? x.lojas / (total.lojas || 1) - ant.faixas[f.id].lojas / ant.lojas : null;
+    const bom = f.id === 'inativo' && d < 0, ruim = f.id === 'inativo' && d > 0; // só Inativos tem direção clara
+    return `<div style="--c:${f.c}"><span>${esc(f.nome)}</span><b>${pctComp(x.lojas, total.lojas)}</b><small>${nf(x.lojas)} loja${x.lojas === 1 ? '' : 's'} · ${pctComp(x.corridas, total.corridas)} das corridas</small>${d != null && Math.abs(d) >= 0.0005 ? `<small class="${bom ? 'up' : ruim ? 'down' : ''}">${sinal(d, pp)} vs ${esc(mA)}</small>` : ''}</div>`; }).join('')}</div>`;
+  const barras = `<div class="comp-bars"><div><span class="hint">Lojas (${nf(total.lojas)})</span>${barraComp(total, 'lojas', 'Lojas')}</div><div><span class="hint">Corridas (${nf(total.corridas)})</span>${barraComp(total, 'corridas', 'Corridas')}</div></div>`;
+  const tabela = (tit, sub, us) => {
+    if (!us.length) return '';
+    const linhas = us.map(u => ({ ...u, c: comp(u.list) })).filter(u => u.c.lojas).sort((x, y) => y.c.lojas - x.c.lojas);
+    const cel = (c, id) => { const v = c.faixas[id].lojas; return `<b class="num">${pctComp(v, c.lojas)}</b><span class="hint"> ${nf(v)}</span>`; };
+    const rows = linhas.map(u => `<tr ${u.ir || 'class="nolink"'}><td><b>${esc(u.nome)}</b>${u.sub ? `<div class="hint">${esc(u.sub)}</div>` : ''}</td><td class="r num">${nf(u.c.lojas)}</td><td>${barraComp(u.c, 'lojas', u.nome)}</td>${FAIXAS_VOLUME.map(f => `<td class="r">${cel(u.c, f.id)}</td>`).join('')}</tr>`).join('');
+    const cards = linhas.map(u => `<${u.ir ? 'button' : 'div'} class="mcard" ${u.ir || ''}><div class="hd"><b>${esc(u.nome)}</b><span class="hint">${nf(u.c.lojas)} lojas</span></div>${u.sub ? `<span class="hint">${esc(u.sub)}</span>` : ''}${barraComp(u.c, 'lojas', u.nome)}<div class="nums">${FAIXAS_VOLUME.map(f => `<span><i class="dotc" style="background:${f.c}"></i>${esc(f.nome)}<b>${pctComp(u.c.faixas[f.id].lojas, u.c.lojas)}<small class="hint"> ${nf(u.c.faixas[f.id].lojas)}</small></b></span>`).join('')}</div></${u.ir ? 'button' : 'div'}>`).join('');
+    return `<h3 class="comp-h3">${esc(tit)} ${sub ? `<small>${esc(sub)}</small>` : ''}</h3>
+      <div class="tbl-wrap"><table class="rel-tbl comp-tbl"><thead><tr><th></th><th class="r">Lojas</th><th>Composição</th>${FAIXAS_VOLUME.map(f => `<th class="r"><i class="dotc" style="background:${f.c}"></i>${esc(f.nome)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="mcards">${cards}</div>`;
+  };
+  const porPraca_ = unidades.length && unidades[0].ir && unidades[0].ir.startsWith('data-praca');
+  return `<section class="mgroup comp"><h2>Composição da carteira <small>% das lojas em cada faixa de entregas</small></h2>
+    ${seg}<p class="gsum">${esc(expl)} Carteira = lojas da base e prospecções que já entregaram; lojas em Ativação entram pela faixa do volume.</p>
+    ${leg}${barras}
+    ${regU.length > 1 ? tabela('Por regional', '', regU) : ''}
+    ${tabela(porPraca_ ? 'Por praça' : 'Por comercial', porPraca_ ? '' : 'toque para ver o relatório do comercial', unidades)}</section>`;
+}
+
 function quedasHTML(ps, corte, mA, mostraCom) {
   const ids = new Set(ps.map(p => p.id));
   const q = lojasEmQueda([...S.lojas.values()].filter(l => ids.has(l.praca)), corte, new Date());
@@ -436,15 +478,15 @@ function viewRelatorio() {
   const corte = dataDeCorte(ps, new Date());
   if (!corte) return `<div class="empty"><span class="hex"></span><h2>O mês acabou de virar</h2><p>O relatório volta com a primeira base do mês, amanhã cedo.</p></div>`;
   const mC = MESES[corte.getMonth()], mA = MESES[(corte.getMonth() + 11) % 12];
-  const nums = numerosDoEscopo(ps); const av = list => avaliarPracas(list, nums, corte);
+  const porPraca = lojasPorPraca(ps); const nums = numerosDoEscopo(ps, porPraca); const av = list => avaliarPracas(list, nums, corte);
   const total = av(ps);
   const umComercial = papel === 'comercial' || Boolean(S.fCom || S.fPraca) || new Set(ps.map(p => p.comercialId)).size === 1;
   // unidades: praças quando o escopo é de um comercial só; senão, comerciais (e regionais para o gestor)
-  const pracasU = ps.map(p => ({ nome: p.rotulo, sub: papel !== 'comercial' && p.comercialId ? nomePessoa(p.comercialId) : '', a: av([p]), ir: `data-praca="${esc(p.id)}"` }));
+  const pracasU = ps.map(p => ({ nome: p.rotulo, sub: papel !== 'comercial' && p.comercialId ? nomePessoa(p.comercialId) : '', list: [p], a: av([p]), ir: `data-praca="${esc(p.id)}"` }));
   const porCom = new Map(); ps.forEach(p => { const k = p.comercialId || '_'; if (!porCom.has(k)) porCom.set(k, []); porCom.get(k).push(p); });
-  const comU = [...porCom].map(([k, list]) => ({ nome: k === '_' ? 'Sem comercial' : nomePessoa(k), sub: list.length > 2 ? `${list.length} praças` : list.map(p => p.rotulo).join(', '), a: av(list), ir: k === '_' ? '' : `data-rcom="${esc(k)}"` }));
+  const comU = [...porCom].map(([k, list]) => ({ nome: k === '_' ? 'Sem comercial' : nomePessoa(k), sub: list.length > 2 ? `${list.length} praças` : list.map(p => p.rotulo).join(', '), list, a: av(list), ir: k === '_' ? '' : `data-rcom="${esc(k)}"` }));
   const regU = papel === 'gestor' && !umComercial ? [...Object.values(S.regionais).sort((a, b) => byPt(a.nome, b.nome)).map(r => ({ r, list: ps.filter(p => p.regional === r.id) })), { r: null, list: ps.filter(p => !p.regional || !S.regionais[p.regional]) }]
-    .filter(x => x.list.length).map(({ r, list }) => ({ nome: r ? r.nome : 'Sem regional', sub: r ? (r.supervisorId ? nomePessoa(r.supervisorId) : 'Sem supervisor') : 'sem supervisor nem comercial', a: av(list), ir: '' })) : [];
+    .filter(x => x.list.length).map(({ r, list }) => ({ nome: r ? r.nome : 'Sem regional', sub: r ? (r.supervisorId ? nomePessoa(r.supervisorId) : 'Sem supervisor') : 'sem supervisor nem comercial', list, a: av(list), ir: '' })) : [];
   const unidades = umComercial ? pracasU : comU.filter(u => u.ir);
   const bons = [], crit = [];
   unidades.forEach(u => { const r = pontosDe(u, u.a, mA, mC); bons.push(...r.bons); crit.push(...r.crit); });
@@ -461,7 +503,7 @@ function viewRelatorio() {
   if (!umComercial) tabelas += tabelaRel('Por comercial', 'toque para ver o relatório do comercial', comU, mA);
   tabelas += umComercial ? tabelaRel('Por praça', 'toque para abrir o funil da praça', pracasU, mA)
     : `<details class="rel-det"><summary>Por praça <small>${pracasU.length} praças · toque para abrir o funil da praça</small></summary>${tabelaRel('', '', pracasU, mA)}</details>`;
-  return `<section class="mgroup rel-head"><h2>${esc(quem)}${voltar}</h2>${periodo}</section>${tilesRel(total, mA, corte)}${paineis}${tabelas}${quedasHTML(ps, corte, mA, papel !== 'comercial' && !umComercial)}
+  return `<section class="mgroup rel-head"><h2>${esc(quem)}${voltar}</h2>${periodo}</section>${tilesRel(total, mA, corte)}${paineis}${tabelas}${composicaoHTML({ ps, porPraca, corte, mA, mC, regU, unidades: umComercial ? pracasU : comU })}${quedasHTML(ps, corte, mA, papel !== 'comercial' && !umComercial)}
     <p class="hint" style="padding-bottom:24px">Projeção = corridas ÷ dias com dados × dias do mês. Ritmo = corridas por dia neste mês contra ${mA} (corridas de ${mA} ÷ ${total.dmAnt}); só é comparado com pelo menos ${LIMITES.baseRitmo} corridas em ${mA}. Corridas: positivo com projeção a partir de 100% da meta, crítico abaixo de ${pctf(LIMITES.proj[1])}. Empresas: crítico abaixo de ${pctf(LIMITES.empresas[1])} da meta; o número cresce ao longo do mês, por isso a comparação com ${mA} é com o mês todo. Taxa de sucesso: crítico mais de ${pp(LIMITES.taxaPp)} abaixo da meta. Situação = o pior status entre os indicadores.</p>`;
 }
 
@@ -769,6 +811,7 @@ $('view').addEventListener('click', async e => {
   const s = e.target.closest('[data-sort]'); if (s) { const k = s.dataset.sort; S.sort = S.sort.k === k ? { k, d: -S.sort.d } : { k, d: k === 'nome' || k === 'cidade' ? 1 : -1 }; renderView(); return; }
   const tk = e.target.closest('[data-tk]'); if (tk) { const [lid, tid] = tk.dataset.tk.split('|'); await toggleTask(lid, tid, tk.checked); return; }
   const lj = e.target.closest('[data-loja]'); if (lj) { abrirLoja(lj.dataset.loja); return; }
+  const cb = e.target.closest('[data-comp]'); if (cb) { S.compBase = cb.dataset.comp; renderView(); return; }
   const rc = e.target.closest('[data-rcom]'); if (rc) { S.fCom = rc.dataset.rcom; S.fPraca = ''; render(); window.scrollTo(0, 0); return; }
   const pr = e.target.closest('[data-praca]'); if (pr) { S.fPraca = pr.dataset.praca; const p = S.pracas[S.fPraca]; if (S.fCom && p && p.comercialId !== S.fCom) S.fCom = ''; S.tab = 'funil'; S.fase = null; render(); window.scrollTo(0, 0); }
 });

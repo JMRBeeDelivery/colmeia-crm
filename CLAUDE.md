@@ -48,6 +48,10 @@ Relatórios (aba `relatorio`, `viewRelatorio` em `app.js`; cálculos em `base.js
   - ritmo: positivo ≥ +5% e crítico ≤ −10%.
 
   "Situação" é o pior status entre os indicadores.
+- **Composição da carteira** (`composicaoCarteira`, `FAIXAS_VOLUME`):
+  - mede o % das lojas por faixa de volume: Inativos e as faixas do funil;
+  - a carteira são as lojas da base e as prospecções que já entregaram; Ativação entra pelo volume;
+  - tem três bases: `atual` (igual ao funil), `projecao` (entregas ÷ dias com dados × dias do mês) e `anterior` (mês fechado, sem as lojas que começaram neste mês).
 - **Lojas em queda** (`lojasEmQueda`): pelo menos 30 entregas no mês anterior e abaixo de 50% do esperado proporcional.
 - Os textos dos destaques e pontos críticos ficam em `pontosDe` (`app.js`), agrupados por comercial ou praça e ordenados pelas corridas em jogo.
 - Não há histórico diário: a comparação usa só os totais do mês anterior que vêm na base.

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classificar, indicePracas, acharPraca, prepararImportacao, parseEntrada, prepararMetas, somarIndicadores,
-  dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda } from '../assets/base.js';
+  dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda, composicaoCarteira, faixaDoVolume } from '../assets/base.js';
 
 const H = new Date(2026, 8, 25); // 25/09/2026
 const f = l => classificar({ mesReferencia: '2026-09', ...l }, H).fase;
@@ -217,4 +217,25 @@ test('relatório: virada de mês conta o mês que acabou como anterior', () => {
 test('relatório: lojas em queda contra o esperado proporcional', () => {
   const q = lojasEmQueda([...lojasA, ...lojasB, lj({ entregasMes: 0, entregasMesAnterior: 20 })], new Date(2026, 9, 12), HR);
   assert.deepEqual(q.map(x => [x.ant, x.esperado, x.atual, x.perda]), [[400, 160, 0, 160], [300, 120, 50, 70]]);
+});
+
+test('composição da carteira: faixas do funil, prospecção fora, ativação pelo volume', () => {
+  assert.deepEqual([0, 1, 50, 51, 100, 101, 500, 501, 1000, 1001].map(faixaDoVolume),
+    ['inativo', 'v1', 'v1', 'v2', 'v2', 'v3', 'v3', 'v4', 'v4', 'v5']);
+  const carteira = [
+    lj({ entregasMes: 0, entregasMesAnterior: 80 }),            // inativo agora, 51–100 em setembro
+    lj({ entregasMes: 48, entregasMesAnterior: 120 }),          // 1–50 até 12/10; projeção 124 → 101–500
+    lj({ entregasMes: 450, entregasMesAnterior: 1100 }),        // 101–500; projeção 1.163 → +1000
+    lj({ entregasMes: 30, entregasMesAnterior: 0, primeiraEntrega: '2026-10-05' }), // em Ativação: entra pelo volume
+    { origem: 'prospeccao', etapa: 'contato' },                  // prospecção: fora da carteira
+  ];
+  const a = composicaoCarteira(carteira, { base: 'atual', hoje: HR });
+  assert.equal(a.lojas, 4); assert.equal(a.corridas, 528);
+  assert.deepEqual(Object.fromEntries(Object.entries(a.faixas).map(([k, v]) => [k, v.lojas])), { inativo: 1, v1: 2, v2: 0, v3: 1, v4: 0, v5: 0 });
+  const p = composicaoCarteira(carteira, { base: 'projecao', corte: new Date(2026, 9, 12), hoje: HR });
+  assert.deepEqual(Object.fromEntries(Object.entries(p.faixas).map(([k, v]) => [k, v.lojas])), { inativo: 1, v1: 0, v2: 1, v3: 1, v4: 0, v5: 1 });
+  assert.equal(p.faixas.v5.corridas, Math.round(450 * 31 / 12));
+  const s = composicaoCarteira(carteira, { base: 'anterior', hoje: HR });
+  assert.equal(s.lojas, 3);                                     // a loja que começou em outubro fica de fora
+  assert.deepEqual(Object.fromEntries(Object.entries(s.faixas).map(([k, v]) => [k, v.lojas])), { inativo: 0, v1: 0, v2: 1, v3: 1, v4: 0, v5: 1 });
 });

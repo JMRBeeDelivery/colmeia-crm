@@ -9,6 +9,7 @@ CRM dos comerciais da Bee Delivery. Cada comercial entra com o e-mail @beedelive
 - **Relatórios**: performance do time, de cada regional, de cada comercial e de cada praça em relação à meta.
   - Compara com o mês anterior de forma proporcional, pelo ritmo diário.
   - Destaca os indicadores positivos e aponta os pontos críticos e as lojas em queda.
+  - Mostra a composição da carteira (% de lojas em Inativos, 1 a 50 … +1000) do time, de cada regional e de cada comercial.
 - **Funil de lojas** em 8 fases: Prospecção, Ativação, Inativos, 1 a 50, 51 a 100, 101 a 500, 501 a 1000 e +1000 entregas.
 - **Detalhe da loja**: contato, WhatsApp, histórico de ligações/visitas e tarefas.
 - **Base diária**: um script do TI extrai os dados do banco para um arquivo no **SharePoint** ou uma planilha do **Google Sheets**; o GitHub Actions lê essa base todo dia às 06:00 e atualiza as lojas.

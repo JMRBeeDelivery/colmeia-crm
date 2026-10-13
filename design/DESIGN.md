@@ -255,6 +255,14 @@ Aba entre Metas e Funil, para todos os papéis. Usa os filtros de comercial e de
   - Colunas: Corridas · Meta · Atingido (barra) · Projeção · {mês anterior} prop. · Ritmo · Empresas · Taxa · Taxa vs {mês} · A recuperar · Situação.
   - Os números usam `.up`/`.down`/`.att` conforme o status.
   - No celular viram cartões com a barra e 6 números.
+- **Composição da carteira:** % das lojas em cada faixa de entregas (Inativos, 1 a 50, 51 a 100, 101 a 500, 501 a 1000, +1000), com as cores das fases do funil (`--f-inat`, `--f-v1`…`--f-v5`).
+  - Seletor segmentado (`.seg`) com a base: **Mês atual (até {data})** (padrão, igual ao funil), **Projeção de {mês}** e **{Mês anterior} (fechado)**. A frase abaixo do seletor explica a base escolhida.
+  - 6 cartões de legenda com uma faixa superior na cor da fase, mostrando:
+    - o % das lojas;
+    - "N lojas · X% das corridas";
+    - na projeção, a variação em pontos contra o mês anterior, colorida só em Inativos.
+  - Duas barras empilhadas: lojas e corridas.
+  - Tabelas "Por regional" (gestor) e "Por comercial" (ou "Por praça"), com a barra de composição e o "% N" por faixa. No celular viram cartões com a barra e 6 números.
 - **Lojas em queda:** as 15 com maior perda contra o esperado proporcional, com as colunas {mês anterior} · Esperado até {data} · Realizado · Queda (chip `warn`). Tocar abre a gaveta da loja.
 - **Rodapé** em `.hint` explicando os cálculos e os limites.
 - **No dia 1 do mês**, estado vazio: "O mês acabou de virar".

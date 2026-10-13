@@ -399,6 +399,30 @@ export function avaliar(s, corte) {
   return a;
 }
 
+/** Faixas de volume da composição da carteira: Inativos + as faixas do funil (v1…v5). */
+export const FAIXAS_VOLUME = [{ id: 'inativo', nome: 'Inativos', c: 'var(--f-inat)' }, ...FAIXAS.map(f => ({ id: f.id, nome: f.nome, c: f.c }))];
+export const faixaDoVolume = n => n > 0 ? FAIXAS.find(f => n <= f.max).id : 'inativo';
+
+/**
+ * Composição da carteira por faixa de volume. Carteira = lojas da base e prospecções que já entregaram
+ * (prospecção sem entrega fica de fora); lojas em Ativação entram na faixa do volume delas.
+ * base: 'atual' (entregas do mês até a data da base, igual ao funil), 'projecao' (entregas ÷ dias com dados
+ * × dias do mês; precisa de corte) ou 'anterior' (mês anterior fechado; lojas que começaram neste mês ficam de fora).
+ * Devolve { lojas, corridas, faixas: { inativo: { lojas, corridas }, v1: …, v5: … } }.
+ */
+export function composicaoCarteira(lojas, { base = 'atual', corte = null, hoje = new Date() } = {}) {
+  const out = { lojas: 0, corridas: 0, faixas: Object.fromEntries(FAIXAS_VOLUME.map(f => [f.id, { lojas: 0, corridas: 0 }])) };
+  const t = new Date(hoje); t.setHours(0, 0, 0, 0); const iniMes = new Date(t.getFullYear(), t.getMonth(), 1);
+  const fator = base === 'projecao' && corte ? diasDoMes(corte) / corte.getDate() : 1;
+  for (const l of lojas) {
+    const c = classificar(l, hoje); if (c.fase === 'prospeccao') continue;
+    if (base === 'anterior') { const pe = parseD(l.primeiraEntrega); if (pe && pe >= iniMes) continue; }
+    const v = base === 'anterior' ? c.ant : Math.round(c.atual * fator);
+    const f = out.faixas[faixaDoVolume(v)]; f.lojas++; f.corridas += v; out.lojas++; out.corridas += v;
+  }
+  return out;
+}
+
 /**
  * Lojas em queda: entregaram pelo menos LIMITES.quedaMin no mês anterior e estão abaixo de LIMITES.quedaFator
  * do esperado para os dias com dados (mês anterior × D ÷ dias do mês anterior). Ordenadas pela perda em corridas.
