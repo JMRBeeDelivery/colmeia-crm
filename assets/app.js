@@ -1,7 +1,8 @@
 // Colmeia CRM · aplicativo (navegador). Sem build: módulo ES servido pelo GitHub Pages.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { CONFIG } from './config.js';
-import { FASES, classificar as classificarBase, parseEntrada, prepararImportacao, prepararMetas, somarIndicadores, soDigitos as soDig } from './base.js';
+import { FASES, classificar as classificarBase, parseEntrada, prepararImportacao, prepararMetas, somarIndicadores, soDigitos as soDig,
+  LIMITES, dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda } from './base.js';
 
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'implicit' } });
 
@@ -233,7 +234,7 @@ $('pwSair').onclick = async () => {
 $('meBox').onclick = () => { if (S.session) mostrarTrocaSenha(S.session, true); };
 
 /* ---------- shell ---------- */
-const TABS = [['metas', 'Metas'], ['funil', 'Funil'], ['lista', 'Lojas'], ['tarefas', 'Tarefas'], ['gestao', 'Gestão']];
+const TABS = [['metas', 'Metas'], ['relatorio', 'Relatórios'], ['funil', 'Funil'], ['lista', 'Lojas'], ['tarefas', 'Tarefas'], ['gestao', 'Gestão']];
 function renderTabs() {
   const vis = TABS.filter(t => t[0] !== 'gestao' || papelAtual() === 'gestor');
   $('tabs').innerHTML = vis.map(([k, n]) => `<button class="tab" data-tab="${k}" aria-current="${S.tab === k}">${n}</button>`).join('');
@@ -337,6 +338,131 @@ function viewMetas() {
       <div class="tbl-wrap"><table><thead><tr><th>Praça</th>${papel !== 'comercial' ? '<th>Comercial</th>' : ''}<th class="r">Meta</th><th class="r">Produzido</th><th>Atingido</th><th class="r">Projeção</th><th class="r">Precisa/dia</th><th title="Lojas com ao menos uma entrega no mês: realizado / meta · % da meta">Empresas</th><th title="Entregas finalizadas ÷ pedidos: realizado / meta">Taxa de sucesso</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div><div class="mcards">${cards}</div></section>`;
   }).join('');
   return tiles + body + `<p class="hint" style="padding-bottom:24px">Projeção = produzido ÷ dias corridos até a data da produção × dias do mês. "Precisa/dia" é quanto falta por dia para bater a meta. Empresas com entregas = lojas com ao menos uma entrega no mês. Taxa de sucesso = entregas finalizadas ÷ pedidos, ponderada pelos pedidos nos totais; aparece quando a base traz pedidos ou cancelamentos. Toque numa praça para ver o funil dela.</p>`;
+}
+
+/* ---------- Relatórios ---------- */
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const ST = { bom: ['good', 'Positivo'], estavel: ['', 'Estável'], atencao: ['hl', 'Atenção'], critico: ['warn', 'Crítico'] };
+const stCls = st => st === 'bom' ? 'up' : st === 'critico' ? 'down' : st === 'atencao' ? 'att' : '';
+const stChip = st => st ? `<span class="chip ${ST[st][0]}">${ST[st][1]}</span>` : `<span class="chip">Sem meta</span>`;
+const sinal = (x, f = pctf) => x == null ? '—' : (x > 0 ? '+' : x < 0 ? '−' : '') + f(Math.abs(x));
+const pp = x => (x * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' p.p.';
+const nf0 = x => nf(Math.round(x));
+
+/** Numeros por praça do escopo, com as lojas de cada uma. */
+function numerosDoEscopo(ps) {
+  const porPraca = new Map(ps.map(p => [p.id, []]));
+  for (const l of S.lojas.values()) { const a = porPraca.get(l.praca); if (a) a.push(l); }
+  const h = new Date();
+  return new Map(ps.map(p => [p.id, numerosPraca(p, porPraca.get(p.id), h)]));
+}
+const avaliarPracas = (ps, nums, corte) => avaliar(somarNumeros(ps.map(p => nums.get(p.id))), corte);
+
+/** Destaques e pontos críticos de uma unidade. peso = corridas em jogo, para ordenar o que mais importa. */
+function pontosDe(u, a, mA, mC) {
+  const bons = [], crit = [], ir = u.ir;
+  const add = (lista, peso, txt) => lista.push({ ...u, peso, txt, ir });
+  if (a.st.corridas === 'bom') add(bons, Math.max(a.proj, a.corridasMeta) - a.meta + 1, a.pct >= 1 ? `Meta de corridas já batida: ${pctf(a.pct)} (${nf(a.corridasMeta)} de ${nf(a.meta)}).` : `Projeção de ${pctf(a.projPct)} da meta de corridas: ${nf(a.proj - a.meta)} acima.`);
+  if (a.st.corridas === 'critico') add(crit, a.meta - a.proj, `Projeção de ${pctf(a.projPct)} da meta de corridas. Precisa de ${nf(a.precisaDia)}/dia; está em ${nf0(a.ritmoMeta)}/dia.`);
+  if (a.st.ritmo === 'bom') add(bons, (a.ritmo - a.ritmoAnt) * a.dm, `Ritmo ${pctf(a.varRitmo)} acima de ${mA}: ${nf0(a.ritmo)}/dia contra ${nf0(a.ritmoAnt)}/dia.`);
+  if (a.st.ritmo === 'critico') add(crit, (a.ritmoAnt - a.ritmo) * a.dm, `Ritmo ${pctf(-a.varRitmo)} abaixo de ${mA}: ${nf0(a.ritmo)}/dia contra ${nf0(a.ritmoAnt)}/dia.`);
+  const porEmp = a.empresas ? a.corridas / a.empresas : 0;
+  if (a.st.empresas === 'bom') add(bons, (a.empresasMeta - a.metaEmpresas + 1) * porEmp, `Meta de empresas batida: ${nf(a.empresasMeta)} com entregas, de ${nf0(a.metaEmpresas)}.`);
+  if (a.st.empresas === 'critico') add(crit, (a.metaEmpresas - a.empresasMeta) * porEmp, `${nf(a.empresasMeta)} empresas com entregas: ${pctf(a.empPct)} da meta de ${nf0(a.metaEmpresas)}.`);
+  if (a.st.taxa === 'bom') add(bons, a.ped * (a.taxa - a.metaTaxa) + 1, `Taxa de sucesso de ${pct1(a.taxa)}, acima da meta de ${pct1(a.metaTaxa)}.`);
+  if (a.st.taxa === 'critico') add(crit, a.ped * (a.metaTaxa - a.taxa), `Taxa de sucesso de ${pct1(a.taxa)} (meta ${pct1(a.metaTaxa)}): ${nf(a.cancelados)} pedidos cancelados no mês.`);
+  else if (a.difTaxaAnt != null && a.difTaxaAnt <= -LIMITES.taxaVar) add(crit, a.ped * -a.difTaxaAnt, `Taxa de sucesso caiu ${pp(-a.difTaxaAnt)} em relação a ${mA} (${pct1(a.taxaAnt)} → ${pct1(a.taxa)}).`);
+  if (a.st.taxa !== 'bom' && a.difTaxaAnt != null && a.difTaxaAnt >= LIMITES.taxaVar) add(bons, a.ped * a.difTaxaAnt, `Taxa de sucesso subiu ${pp(a.difTaxaAnt)} em relação a ${mA} (${pct1(a.taxaAnt)} → ${pct1(a.taxa)}).`);
+  if (a.perdidas >= 3 && a.perdidasProp >= 30) add(crit, a.perdidasProp, `${nf(a.perdidas)} lojas entregaram em ${mA} e ainda não em ${mC} (${nf(a.corridasPerdidas)} corridas em ${mA}).`);
+  return { bons, crit };
+}
+
+function tilesRel(a, mA, corte) {
+  const dRitmo = a.varRitmo != null ? `<small class="${stCls(a.st.ritmo)}">${sinal(a.varRitmo)} no ritmo diário vs ${mA}</small>` : `<small>${mA} sem base para comparar</small>`;
+  const tile = (st, tit, val, ...sub) => `<div class="tile ${st ? 'st-' + st : ''}"><span>${tit}</span><b>${val}</b>${sub.filter(Boolean).join('')}</div>`;
+  return `<div class="tiles">
+    ${tile(a.st.corridas, 'Corridas · projeção', a.projPct != null ? pctf(a.projPct) : '—', `<small>${a.meta ? `${nf(a.proj)} projetadas · meta ${nf(a.meta)}` : 'sem meta'}</small>`, a.precisaDia != null && a.st.corridas !== 'bom' ? `<small>precisa de ${nf(a.precisaDia)}/dia (hoje ${nf0(a.ritmoMeta)}/dia)</small>` : '')}
+    ${tile(a.st.ritmo === 'estavel' ? null : a.st.ritmo, `Corridas até ${pad(corte.getDate())}/${pad(corte.getMonth() + 1)}`, nf(a.corridas), `<small>${mA} no mesmo período: ${nf(a.antProp)}</small>`, dRitmo)}
+    ${tile(a.st.empresas, 'Empresas com entregas', nf(a.empresas), `<small>${a.metaEmpresas ? `${pctf(a.empPct)} da meta de ${nf0(a.metaEmpresas)}` : 'sem meta'}</small>`, `<small>${mA}: ${nf(a.empresasAnt)} no mês todo</small>`)}
+    ${tile(a.st.taxa, 'Taxa de sucesso', pct1(a.taxa), `<small>${a.metaTaxa != null ? `meta ${pct1(a.metaTaxa)}` : 'sem meta'}${a.taxa == null ? ' · a base ainda não traz pedidos' : ''}</small>`, a.taxaAnt != null ? `<small class="${a.difTaxaAnt >= LIMITES.taxaVar ? 'up' : a.difTaxaAnt <= -LIMITES.taxaVar ? 'down' : ''}">${mA}: ${pct1(a.taxaAnt)}${a.difTaxaAnt != null ? ` (${sinal(a.difTaxaAnt, pp)})` : ''}</small>` : '')}
+    ${tile(a.perdidas && a.perdidasProp >= 30 ? 'critico' : null, 'Lojas a recuperar', nf(a.perdidas), `<small>entregaram em ${mA}, ainda não neste mês</small>`, a.perdidas ? `<small>${nf(a.corridasPerdidas)} corridas em ${mA}</small>` : '')}
+    ${tile(a.geral, 'Situação geral', a.geral ? ST[a.geral][1] : '—', `<small>${a.pracas} praça${a.pracas > 1 ? 's' : ''} · pior status entre os indicadores</small>`)}</div>`;
+}
+
+/** Um cartão por comercial/praça, com os pontos dele; os de maior peso (corridas em jogo) primeiro. */
+function listaPontos(itens, vazio) {
+  if (!itens.length) return `<p class="hint">${vazio}</p>`;
+  const grupos = new Map();
+  itens.forEach(x => { const k = x.ir || x.nome; if (!grupos.has(k)) grupos.set(k, { ...x, peso: 0, txts: [] }); const g = grupos.get(k); g.peso += x.peso; g.txts.push(x); });
+  const lista = [...grupos.values()].sort((x, y) => y.peso - x.peso);
+  lista.forEach(g => g.txts.sort((x, y) => y.peso - x.peso));
+  const li = g => `<li><button ${g.ir}><div><b>${esc(g.nome)}</b>${g.sub ? ` <span class="hint">· ${esc(g.sub)}</span>` : ''}</div>${g.txts.map(x => `<span>${esc(x.txt)}</span>`).join('')}</button></li>`;
+  const top = lista.slice(0, 6), resto = lista.slice(6);
+  return `<ul class="ins">${top.map(li).join('')}</ul>${resto.length ? `<details><summary class="hint">Ver mais ${resto.length}</summary><ul class="ins">${resto.map(li).join('')}</ul></details>` : ''}`;
+}
+
+/** Tabela (computador) + cartões (celular) de unidades avaliadas. */
+function tabelaRel(tit, sub, linhas, mA) {
+  if (!linhas.length) return '';
+  linhas.sort((x, y) => (y.a.projPct ?? -1) - (x.a.projPct ?? -1) || y.a.corridas - x.a.corridas);
+  const emp = a => a.metaEmpresas ? `<span class="num ${stCls(a.st.empresas)}">${nf(a.empresasMeta)}</span><span class="hint"> / ${nf0(a.metaEmpresas)}</span>` : `<span class="num">${nf(a.empresas)}</span>`;
+  const tx = a => a.taxa == null ? '<span class="hint">—</span>' : `<span class="num ${stCls(a.st.taxa)}">${pct1(a.taxa)}</span>${a.metaTaxa != null ? `<span class="hint"> / ${pct1(a.metaTaxa)}</span>` : ''}`;
+  const rit = a => `<span class="num ${stCls(a.st.ritmo)}">${sinal(a.varRitmo)}</span>`;
+  const meter = a => meterHTML({ meta: a.meta, pct: a.pct, projPct: a.projPct });
+  const rows = linhas.map(({ nome, sub: s, a, ir }) => `<tr ${ir || 'class="nolink"'}><td><b>${esc(nome)}</b>${s ? `<div class="hint">${esc(s)}</div>` : ''}</td><td class="r num">${nf(a.corridas)}</td><td class="r num">${a.meta ? nf(a.meta) : '—'}</td><td>${meter(a)}</td><td class="r num ${stCls(a.st.corridas)}">${a.projPct != null ? pctf(a.projPct) : '—'}</td><td class="r num">${nf(a.antProp)}</td><td class="r">${rit(a)}</td><td>${emp(a)}</td><td>${tx(a)}</td><td class="r num">${a.difTaxaAnt != null ? sinal(a.difTaxaAnt, pp) : '—'}</td><td class="r num">${a.perdidas ? nf(a.perdidas) : '—'}</td><td>${stChip(a.geral)}</td></tr>`).join('');
+  const cards = linhas.map(({ nome, sub: s, a, ir }) => `<${ir ? 'button' : 'div'} class="mcard" ${ir || ''}><div class="hd"><b>${esc(nome)}</b>${stChip(a.geral)}</div>${s ? `<span class="hint">${esc(s)}</span>` : ''}${a.meta ? meter(a) : ''}<div class="nums"><span>Projeção<b class="${stCls(a.st.corridas)}">${a.projPct != null ? pctf(a.projPct) : '—'}</b></span><span>Ritmo vs ${esc(mA.slice(0, 3))}.<b class="${stCls(a.st.ritmo)}">${sinal(a.varRitmo)}</b></span><span>Corridas<b>${nf(a.corridas)}</b></span><span>Empresas<b class="${stCls(a.st.empresas)}">${nf(a.empresasMeta || a.empresas)}${a.metaEmpresas ? `<small class="hint"> / ${nf0(a.metaEmpresas)}</small>` : ''}</b></span><span>Taxa<b class="${stCls(a.st.taxa)}">${pct1(a.taxa)}</b></span><span>A recuperar<b>${nf(a.perdidas)}</b></span></div></${ir ? 'button' : 'div'}>`).join('');
+  return `<section class="mgroup">${tit ? `<h2>${esc(tit)} ${sub ? `<small>${esc(sub)}</small>` : ''}</h2>` : ''}
+    <div class="tbl-wrap"><table class="rel-tbl"><thead><tr><th></th><th class="r">Corridas</th><th class="r">Meta</th><th>Atingido</th><th class="r">Projeção</th><th class="r" title="Corridas do mês anterior no mesmo número de dias (proporcional)">${esc(mA)} prop.</th><th class="r" title="Ritmo diário deste mês contra o do mês anterior">Ritmo</th><th title="Empresas com entregas: realizado / meta">Empresas</th><th title="Entregas finalizadas ÷ pedidos: realizado / meta">Taxa</th><th class="r" title="Taxa deste mês menos a do mês anterior">Taxa vs ${esc(mA.slice(0, 3))}.</th><th class="r" title="Lojas que entregaram no mês anterior e ainda não neste">A recuperar</th><th>Situação</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="mcards">${cards}</div></section>`;
+}
+
+function quedasHTML(ps, corte, mA, mostraCom) {
+  const ids = new Set(ps.map(p => p.id));
+  const q = lojasEmQueda([...S.lojas.values()].filter(l => ids.has(l.praca)), corte, new Date());
+  if (!q.length) return '';
+  const top = q.slice(0, 15); const D = `${pad(corte.getDate())}/${pad(corte.getMonth() + 1)}`;
+  const com = l => { const p = S.pracas[l.praca]; return p && p.comercialId ? nomePessoa(p.comercialId) : '—'; };
+  const rows = top.map(x => `<tr data-loja="${esc(x.loja.id)}"><td><b>${esc(x.loja.nome)}</b></td><td>${esc(nomePraca(x.loja.praca))}</td>${mostraCom ? `<td>${esc(com(x.loja))}</td>` : ''}<td class="r num">${nf(x.ant)}</td><td class="r num">${nf(x.esperado)}</td><td class="r num">${nf(x.atual)}</td><td class="r num down">−${pctf(x.queda)}</td></tr>`).join('');
+  const cards = top.map(x => `<button class="mcard" data-loja="${esc(x.loja.id)}"><div class="hd"><b>${esc(x.loja.nome)}</b><span class="chip warn">−${pctf(x.queda)}</span></div><span class="hint">${esc(nomePraca(x.loja.praca))}${mostraCom ? ' · ' + esc(com(x.loja)) : ''}</span><div class="nums"><span>${esc(mA)}<b>${nf(x.ant)}</b></span><span>Esperado até ${D}<b>${nf(x.esperado)}</b></span><span>Realizado<b class="down">${nf(x.atual)}</b></span></div></button>`).join('');
+  return `<section class="mgroup"><h2>Lojas em queda <small>${q.length} loja${q.length > 1 ? 's' : ''} abaixo da metade do esperado${q.length > top.length ? ` · as ${top.length} com maior perda` : ''}</small></h2>
+    <div class="gsum">Esperado = entregas de ${mA} proporcionais aos dias com dados. Toque na loja para registrar o contato.</div>
+    <div class="tbl-wrap"><table class="rel-tbl rel-q"><thead><tr><th>Loja</th><th>Praça</th>${mostraCom ? '<th>Comercial</th>' : ''}<th class="r">${esc(mA)}</th><th class="r">Esperado até ${D}</th><th class="r">Realizado</th><th class="r">Queda</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="mcards">${cards}</div></section>`;
+}
+
+function viewRelatorio() {
+  const ps = pracasFiltradas(); const papel = papelAtual();
+  if (!ps.length) return `<div class="empty"><h2>Nenhuma praça neste filtro</h2></div>`;
+  const corte = dataDeCorte(ps, new Date());
+  if (!corte) return `<div class="empty"><span class="hex"></span><h2>O mês acabou de virar</h2><p>O relatório volta com a primeira base do mês, amanhã cedo.</p></div>`;
+  const mC = MESES[corte.getMonth()], mA = MESES[(corte.getMonth() + 11) % 12];
+  const nums = numerosDoEscopo(ps); const av = list => avaliarPracas(list, nums, corte);
+  const total = av(ps);
+  const umComercial = papel === 'comercial' || Boolean(S.fCom || S.fPraca) || new Set(ps.map(p => p.comercialId)).size === 1;
+  // unidades: praças quando o escopo é de um comercial só; senão, comerciais (e regionais para o gestor)
+  const pracasU = ps.map(p => ({ nome: p.rotulo, sub: papel !== 'comercial' && p.comercialId ? nomePessoa(p.comercialId) : '', a: av([p]), ir: `data-praca="${esc(p.id)}"` }));
+  const porCom = new Map(); ps.forEach(p => { const k = p.comercialId || '_'; if (!porCom.has(k)) porCom.set(k, []); porCom.get(k).push(p); });
+  const comU = [...porCom].map(([k, list]) => ({ nome: k === '_' ? 'Sem comercial' : nomePessoa(k), sub: list.length > 2 ? `${list.length} praças` : list.map(p => p.rotulo).join(', '), a: av(list), ir: k === '_' ? '' : `data-rcom="${esc(k)}"` }));
+  const regU = papel === 'gestor' && !umComercial ? [...Object.values(S.regionais).sort((a, b) => byPt(a.nome, b.nome)).map(r => ({ r, list: ps.filter(p => p.regional === r.id) })), { r: null, list: ps.filter(p => !p.regional || !S.regionais[p.regional]) }]
+    .filter(x => x.list.length).map(({ r, list }) => ({ nome: r ? r.nome : 'Sem regional', sub: r ? (r.supervisorId ? nomePessoa(r.supervisorId) : 'Sem supervisor') : 'sem supervisor nem comercial', a: av(list), ir: '' })) : [];
+  const unidades = umComercial ? pracasU : comU.filter(u => u.ir);
+  const bons = [], crit = [];
+  unidades.forEach(u => { const r = pontosDe(u, u.a, mA, mC); bons.push(...r.bons); crit.push(...r.crit); });
+  // títulos do escopo
+  const quem = S.fPraca ? nomePraca(S.fPraca) : S.fCom === '_sem' ? 'Praças sem comercial' : S.fCom ? nomePessoa(S.fCom)
+    : papel === 'gestor' ? 'Time todo' : papel === 'supervisor' ? (S.regionais[pessoaAtual().regional] || {}).nome || 'Minha regional' : 'Meu resultado';
+  const voltar = (S.fCom || S.fPraca) && papel !== 'comercial' ? ` <button class="linkish" id="relVoltar">ver ${papel === 'gestor' ? 'o time todo' : 'a regional toda'}</button>` : '';
+  const periodo = `<p class="rel-per">${mC[0].toUpperCase() + mC.slice(1)} até ${pad(corte.getDate())}/${pad(corte.getMonth() + 1)} · ${total.D} de ${total.dm} dias. A comparação com ${mA} é proporcional: o mesmo número de dias, no ritmo diário de ${mA}.</p>`;
+  const paineis = `<div class="panels rel-pan">
+    <div class="panel pos"><h2>Destaques</h2><p>Indicadores positivos${umComercial ? ' por praça' : ' por comercial'}.</p>${listaPontos(bons, 'Nenhum indicador acima da meta ou do mês anterior por enquanto.')}</div>
+    <div class="panel neg"><h2>Pontos críticos</h2><p>Precisam de atenção do supervisor e do comercial. Os de maior impacto em corridas aparecem primeiro.</p>${listaPontos(crit, 'Nenhum indicador crítico no momento.')}</div></div>`;
+  let tabelas = '';
+  if (regU.length > 1) tabelas += tabelaRel('Por regional', '', regU, mA);
+  if (!umComercial) tabelas += tabelaRel('Por comercial', 'toque para ver o relatório do comercial', comU, mA);
+  tabelas += umComercial ? tabelaRel('Por praça', 'toque para abrir o funil da praça', pracasU, mA)
+    : `<details class="rel-det"><summary>Por praça <small>${pracasU.length} praças · toque para abrir o funil da praça</small></summary>${tabelaRel('', '', pracasU, mA)}</details>`;
+  return `<section class="mgroup rel-head"><h2>${esc(quem)}${voltar}</h2>${periodo}</section>${tilesRel(total, mA, corte)}${paineis}${tabelas}${quedasHTML(ps, corte, mA, papel !== 'comercial' && !umComercial)}
+    <p class="hint" style="padding-bottom:24px">Projeção = corridas ÷ dias com dados × dias do mês. Ritmo = corridas por dia neste mês contra ${mA} (corridas de ${mA} ÷ ${total.dmAnt}); só é comparado com pelo menos ${LIMITES.baseRitmo} corridas em ${mA}. Corridas: positivo com projeção a partir de 100% da meta, crítico abaixo de ${pctf(LIMITES.proj[1])}. Empresas: crítico abaixo de ${pctf(LIMITES.empresas[1])} da meta; o número cresce ao longo do mês, por isso a comparação com ${mA} é com o mês todo. Taxa de sucesso: crítico mais de ${pp(LIMITES.taxaPp)} abaixo da meta. Situação = o pior status entre os indicadores.</p>`;
 }
 
 /* ---------- Funil / Lojas / Tarefas ---------- */
@@ -615,14 +741,16 @@ function renderView() {
     $('toolbar').hidden = true; $('counters').hidden = true; $('bnav').hidden = true; $('fab').hidden = true;
     $('view').innerHTML = `<div class="empty"><span class="hex"></span><h2>Seu acesso ainda não foi liberado</h2><p>O e-mail ${esc(S.session.user.email)} não está ligado a ninguém da equipe comercial. Fale com o gestor.</p></div>`; return;
   }
-  $('toolbar').hidden = false; $('counters').hidden = gest || S.tab === 'metas'; $('bnav').hidden = false; $('fab').hidden = gest || S.tab === 'metas';
-  const titles = { metas: 'Metas do mês', funil: 'Funil', lista: 'Lojas', tarefas: 'Tarefas', gestao: 'Gestão' };
+  $('toolbar').hidden = false; const painel = S.tab === 'metas' || S.tab === 'relatorio';
+  $('counters').hidden = gest || painel; $('bnav').hidden = false; $('fab').hidden = gest || painel;
+  const titles = { metas: 'Metas do mês', relatorio: 'Relatórios', funil: 'Funil', lista: 'Lojas', tarefas: 'Tarefas', gestao: 'Gestão' };
   $('viewTitle').textContent = titles[S.tab];
-  $('fCidade').hidden = gest; $('fBusca').hidden = gest || S.tab === 'metas'; $('btnNova').hidden = gest || S.tab === 'metas';
+  $('fCidade').hidden = gest; $('fBusca').hidden = gest || painel; $('btnNova').hidden = gest || painel;
   if (!pracasEscopo().length && !gest) { $('view').innerHTML = `<div class="empty"><span class="hex"></span><h2>Nenhuma praça atribuída</h2><p>Peça ao gestor comercial para definir suas praças.</p></div>`; return; }
-  $('view').innerHTML = { metas: viewMetas, funil: viewFunil, lista: viewLista, tarefas: viewTarefas, gestao: viewGestao }[S.tab]();
+  $('view').innerHTML = { metas: viewMetas, relatorio: viewRelatorio, funil: viewFunil, lista: viewLista, tarefas: viewTarefas, gestao: viewGestao }[S.tab]();
   if (gest) { renderEstrutura(); renderPessoas(); wireGestao(); }
   const lf = $('limpaFase'); if (lf) lf.onclick = () => { S.fase = null; render(); };
+  const rv = $('relVoltar'); if (rv) rv.onclick = () => { S.fCom = ''; S.fPraca = ''; render(); window.scrollTo(0, 0); };
 }
 function render() {
   if (!S.carregado) return;
@@ -641,6 +769,7 @@ $('view').addEventListener('click', async e => {
   const s = e.target.closest('[data-sort]'); if (s) { const k = s.dataset.sort; S.sort = S.sort.k === k ? { k, d: -S.sort.d } : { k, d: k === 'nome' || k === 'cidade' ? 1 : -1 }; renderView(); return; }
   const tk = e.target.closest('[data-tk]'); if (tk) { const [lid, tid] = tk.dataset.tk.split('|'); await toggleTask(lid, tid, tk.checked); return; }
   const lj = e.target.closest('[data-loja]'); if (lj) { abrirLoja(lj.dataset.loja); return; }
+  const rc = e.target.closest('[data-rcom]'); if (rc) { S.fCom = rc.dataset.rcom; S.fPraca = ''; render(); window.scrollTo(0, 0); return; }
   const pr = e.target.closest('[data-praca]'); if (pr) { S.fPraca = pr.dataset.praca; const p = S.pracas[S.fPraca]; if (S.fCom && p && p.comercialId !== S.fCom) S.fCom = ''; S.tab = 'funil'; S.fase = null; render(); window.scrollTo(0, 0); }
 });
 

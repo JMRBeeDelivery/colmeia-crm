@@ -300,3 +300,115 @@ export function somarIndicadores(itens) {
     metaTaxa: pedMeta ? entMeta / pedMeta : null, taxa: ped ? ent / ped : null,
   };
 }
+
+/* ---------- Relatório: metas e comparação proporcional com o mês anterior ---------- */
+// Limites dos status. proj/empresas: fração da meta (bom, atenção). taxaPp: tolerância abaixo da meta de taxa.
+// taxaVar: variação da taxa contra o mês anterior (em pontos) que vira destaque ou ponto crítico.
+// Ritmo: variação do ritmo diário contra o mês anterior, só com pelo menos baseRitmo corridas no mês anterior.
+// Queda de loja: loja com pelo menos quedaMin entregas no mês anterior que está abaixo de quedaFator do esperado.
+export const LIMITES = { proj: [1, 0.85], empresas: [1, 0.9], taxaPp: 0.02, taxaVar: 0.02,
+  ritmo: { bom: 0.05, atencao: -0.05, critico: -0.10 }, baseRitmo: 100, quedaMin: 30, quedaFator: 0.5 };
+
+const diasDoMes = d => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+const diasDoMesAnterior = d => new Date(d.getFullYear(), d.getMonth(), 0).getDate();
+
+/**
+ * Último dia com dados do mês corrente: o maior produzido_ate do mês (até hoje); sem ele, ontem.
+ * null no dia 1, quando o mês ainda não tem dados.
+ */
+export function dataDeCorte(pracas, hoje = new Date()) {
+  const t = new Date(hoje); t.setHours(0, 0, 0, 0); const cur = mesKey(t);
+  const ds = pracas.map(p => parseD(p.produzidoAte)).filter(d => d && mesKey(d) === cur && d <= t);
+  if (ds.length) return new Date(Math.max(...ds));
+  const ontem = new Date(t); ontem.setDate(t.getDate() - 1);
+  return mesKey(ontem) === cur ? ontem : null;
+}
+
+/**
+ * Números de uma praça no mês corrente e no anterior, a partir das lojas dela.
+ * p: { meta, metaEmpresas, metaTaxa, produzido, produzidoAte }. As corridas do mês seguem a aba Metas
+ * (produzido, quando é deste mês); o mês anterior vem das lojas (entregas_mes_anterior, com a virada de mês).
+ */
+export function numerosPraca(p, lojas, hoje = new Date()) {
+  const n = { meta: p.meta ? +p.meta : null, metaEmpresas: p.metaEmpresas != null ? +p.metaEmpresas : null, metaTaxa: p.metaTaxa != null ? +p.metaTaxa : null,
+    corridas: 0, corridasAnt: 0, empresas: 0, empresasAnt: 0, entTaxa: 0, ped: 0, entTaxaAnt: 0, pedAnt: 0, perdidas: 0, corridasPerdidas: 0 };
+  let somaLojas = 0;
+  for (const l of lojas) {
+    const c = classificar(l, hoje);
+    somaLojas += c.atual; n.corridasAnt += c.ant;
+    if (c.atual > 0) n.empresas++;
+    if (c.ant > 0) n.empresasAnt++;
+    if (c.cancelados != null) { n.entTaxa += c.atual; n.ped += c.atual + c.cancelados; }
+    if (c.canceladosAnt != null) { n.entTaxaAnt += c.ant; n.pedAnt += c.ant + c.canceladosAnt; }
+    if (c.ant > 0 && c.atual === 0) { n.perdidas++; n.corridasPerdidas += c.ant; }
+  }
+  const ref = parseD(p.produzidoAte);
+  n.corridas = ref && mesKey(ref) === mesKey(new Date(hoje)) ? +p.produzido || 0 : somaLojas;
+  return n;
+}
+
+const SOMAVEIS = ['corridas', 'corridasAnt', 'empresas', 'empresasAnt', 'entTaxa', 'ped', 'entTaxaAnt', 'pedAnt', 'perdidas', 'corridasPerdidas'];
+/**
+ * Soma praças (time, regional, comercial). Metas de corridas e de empresas comparam só com as praças que têm meta
+ * (corridasMeta, empresasMeta). A meta de taxa é ponderada pelos pedidos, como em somarIndicadores.
+ */
+export function somarNumeros(lista) {
+  const s = { pracas: lista.length, meta: null, metaEmpresas: null, metaTaxa: null, corridasMeta: 0, empresasMeta: 0 };
+  SOMAVEIS.forEach(k => { s[k] = 0; });
+  let entMeta = 0, pedMeta = 0;
+  for (const n of lista) {
+    SOMAVEIS.forEach(k => { s[k] += n[k] || 0; });
+    if (n.meta) { s.meta = (s.meta || 0) + n.meta; s.corridasMeta += n.corridas; }
+    if (n.metaEmpresas != null) { s.metaEmpresas = (s.metaEmpresas || 0) + n.metaEmpresas; s.empresasMeta += n.empresas; }
+    if (n.meta && n.metaTaxa) { entMeta += n.meta; pedMeta += n.meta / n.metaTaxa; }
+  }
+  s.metaTaxa = pedMeta ? entMeta / pedMeta : lista.length === 1 ? lista[0].metaTaxa : null;
+  return s;
+}
+
+/**
+ * Indicadores derivados e status de um conjunto somado, na data de corte.
+ * Comparação proporcional: ritmo diário do mês (corridas ÷ dias com dados) contra o do mês anterior
+ * (corridas ÷ dias do mês anterior). antProp = quanto o mês anterior teria feito no mesmo número de dias.
+ * Status: 'bom' | 'estavel' (só ritmo) | 'atencao' | 'critico' | null (sem meta ou sem base).
+ */
+export function avaliar(s, corte) {
+  const L = LIMITES; const D = corte.getDate(), dm = diasDoMes(corte), dmAnt = diasDoMesAnterior(corte);
+  const a = { ...s, D, dm, dmAnt, pct: null, proj: null, projPct: null, precisaDia: null, ritmoMeta: null, empPct: null };
+  a.ritmo = s.corridas / D; a.ritmoAnt = s.corridasAnt / dmAnt;
+  a.antProp = Math.round(s.corridasAnt * D / dmAnt);
+  a.varRitmo = s.corridasAnt >= L.baseRitmo ? a.ritmo / a.ritmoAnt - 1 : null;
+  if (s.meta) {
+    a.pct = s.corridasMeta / s.meta; a.ritmoMeta = s.corridasMeta / D;
+    a.proj = Math.round(a.ritmoMeta * dm); a.projPct = a.proj / s.meta;
+    a.precisaDia = D < dm ? Math.max(0, Math.ceil((s.meta - s.corridasMeta) / (dm - D))) : null;
+  }
+  if (s.metaEmpresas) a.empPct = s.empresasMeta / s.metaEmpresas;
+  a.taxa = s.ped ? s.entTaxa / s.ped : null; a.taxaAnt = s.pedAnt ? s.entTaxaAnt / s.pedAnt : null;
+  a.difTaxaAnt = a.taxa != null && a.taxaAnt != null ? a.taxa - a.taxaAnt : null;
+  a.cancelados = s.ped - s.entTaxa;
+  a.perdidasProp = Math.round(s.corridasPerdidas * D / dmAnt);
+  a.st = {
+    corridas: a.projPct == null ? null : a.pct >= 1 || a.projPct >= L.proj[0] ? 'bom' : a.projPct >= L.proj[1] ? 'atencao' : 'critico',
+    empresas: a.empPct == null ? null : a.empPct >= L.empresas[0] ? 'bom' : a.empPct >= L.empresas[1] ? 'atencao' : 'critico',
+    taxa: a.taxa == null || s.metaTaxa == null ? null : a.taxa >= s.metaTaxa ? 'bom' : a.taxa >= s.metaTaxa - L.taxaPp ? 'atencao' : 'critico',
+    ritmo: a.varRitmo == null ? null : a.varRitmo >= L.ritmo.bom ? 'bom' : a.varRitmo > L.ritmo.atencao ? 'estavel' : a.varRitmo > L.ritmo.critico ? 'atencao' : 'critico',
+  };
+  const v = Object.values(a.st).filter(Boolean);
+  a.geral = !v.length ? null : v.includes('critico') ? 'critico' : v.includes('atencao') ? 'atencao' : 'bom';
+  return a;
+}
+
+/**
+ * Lojas em queda: entregaram pelo menos LIMITES.quedaMin no mês anterior e estão abaixo de LIMITES.quedaFator
+ * do esperado para os dias com dados (mês anterior × D ÷ dias do mês anterior). Ordenadas pela perda em corridas.
+ */
+export function lojasEmQueda(lojas, corte, hoje = new Date()) {
+  const D = corte.getDate(), dmAnt = diasDoMesAnterior(corte); const out = [];
+  for (const l of lojas) {
+    const c = classificar(l, hoje); if (c.ant < LIMITES.quedaMin) continue;
+    const esperado = c.ant * D / dmAnt; if (c.atual >= esperado * LIMITES.quedaFator) continue;
+    out.push({ loja: l, atual: c.atual, ant: c.ant, esperado: Math.round(esperado), perda: Math.round(esperado - c.atual), queda: 1 - c.atual / esperado });
+  }
+  return out.sort((a, b) => b.perda - a.perda);
+}

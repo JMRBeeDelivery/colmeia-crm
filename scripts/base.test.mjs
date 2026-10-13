@@ -1,7 +1,8 @@
 // Testes das regras de negócio: node --test scripts/
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classificar, indicePracas, acharPraca, prepararImportacao, parseEntrada, prepararMetas, somarIndicadores } from '../assets/base.js';
+import { classificar, indicePracas, acharPraca, prepararImportacao, parseEntrada, prepararMetas, somarIndicadores,
+  dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda } from '../assets/base.js';
 
 const H = new Date(2026, 8, 25); // 25/09/2026
 const f = l => classificar({ mesReferencia: '2026-09', ...l }, H).fase;
@@ -155,4 +156,65 @@ test('linha vinda do Google Sheets: cabeçalho com acento, datas seriais e CNPJ 
   assert.equal(l.entregas_mes, 1342); assert.equal(l.entregas_mes_anterior, 980);
   assert.equal(l.mes_referencia, '2026-09');
   assert.equal(classificar({ primeiraEntrega: l.primeira_entrega, entregasMes: l.entregas_mes, mesReferencia: l.mes_referencia }, H).fase, 'v5');
+});
+
+/* ---------- relatório ---------- */
+const HR = new Date(2026, 9, 13); // 13/10/2026: base com dados até 12/10 (12 de 31 dias; setembro tem 30)
+const lj = (o) => ({ origem: 'base', codigo: 'x', mesReferencia: '2026-10', primeiraEntrega: '2025-01-01', ...o });
+const praA = { meta: 3100, metaEmpresas: 3, metaTaxa: 0.9, produzido: 1200, produzidoAte: '2026-10-12' };
+const lojasA = [
+  lj({ entregasMes: 700, entregasMesAnterior: 1500, pedidosMes: 760, pedidosMesAnterior: 1600 }),
+  lj({ entregasMes: 500, entregasMesAnterior: 600, pedidosMes: 540, pedidosMesAnterior: 650 }),
+  lj({ entregasMes: 0, entregasMesAnterior: 400, pedidosMes: 0, pedidosMesAnterior: 420 }),
+];
+const praB = { meta: null, metaEmpresas: null, metaTaxa: 0.95, produzido: 0, produzidoAte: null };
+const lojasB = [lj({ entregasMes: 50, entregasMesAnterior: 300 })];
+
+test('relatório: data de corte = último produzido do mês, ontem sem ele, nenhuma no dia 1', () => {
+  assert.equal(dataDeCorte([praA, praB], HR).getDate(), 12);
+  assert.equal(dataDeCorte([praB], new Date(2026, 9, 20)).getDate(), 19);
+  assert.equal(dataDeCorte([{ produzidoAte: '2026-10-31' }], new Date(2026, 10, 1)), null);
+});
+
+test('relatório: meta, projeção e ritmo proporcional ao mês anterior', () => {
+  const corte = dataDeCorte([praA], HR);
+  const a = avaliar(somarNumeros([numerosPraca(praA, lojasA, HR)]), corte);
+  assert.equal(a.D, 12); assert.equal(a.dm, 31); assert.equal(a.dmAnt, 30);
+  assert.equal(a.corridas, 1200); assert.equal(a.corridasAnt, 2500);
+  assert.equal(a.proj, 3100); assert.equal(a.projPct, 1); assert.equal(a.st.corridas, 'bom');
+  assert.equal(a.precisaDia, 100);
+  assert.equal(a.antProp, 1000);                       // setembro no mesmo número de dias
+  assert.ok(Math.abs(a.varRitmo - 0.2) < 1e-9);        // 100/dia contra 83,3/dia
+  assert.equal(a.st.ritmo, 'bom');
+  assert.equal(a.empresas, 2); assert.equal(a.empresasAnt, 3); assert.equal(a.st.empresas, 'critico');
+  assert.ok(Math.abs(a.taxa - 1200 / 1300) < 1e-9); assert.equal(a.st.taxa, 'bom');
+  assert.ok(Math.abs(a.taxaAnt - 2500 / 2670) < 1e-9);
+  assert.equal(a.cancelados, 100);
+  assert.equal(a.perdidas, 1); assert.equal(a.corridasPerdidas, 400); assert.equal(a.perdidasProp, 160);
+  assert.equal(a.geral, 'critico');
+});
+
+test('relatório: praça sem meta usa as lojas; soma compara a meta só com quem tem meta', () => {
+  const corte = new Date(2026, 9, 12);
+  const nB = numerosPraca(praB, lojasB, HR);
+  const b = avaliar(somarNumeros([nB]), corte);
+  assert.equal(b.corridas, 50); assert.equal(b.metaTaxa, 0.95); assert.equal(b.st.corridas, null);
+  assert.equal(b.st.ritmo, 'critico');                  // 4,2/dia contra 10/dia
+  const t = avaliar(somarNumeros([numerosPraca(praA, lojasA, HR), nB]), corte);
+  assert.equal(t.pracas, 2); assert.equal(t.corridas, 1250); assert.equal(t.corridasMeta, 1200); assert.equal(t.meta, 3100);
+  assert.equal(t.metaTaxa, 0.9); assert.equal(t.metaEmpresas, 3); assert.equal(t.empresasMeta, 2);
+  const s = avaliar(somarNumeros([numerosPraca({ ...praA, meta: 4000 }, lojasA, HR)]), corte);
+  assert.equal(s.st.corridas, 'critico');               // 3.100 de 4.000 = 77,5%
+  assert.equal(avaliar(somarNumeros([numerosPraca({ ...praA, meta: 3500 }, lojasA, HR)]), corte).st.corridas, 'atencao');
+});
+
+test('relatório: virada de mês conta o mês que acabou como anterior', () => {
+  const l = lj({ mesReferencia: '2026-09', entregasMes: 900, entregasMesAnterior: 50 });
+  const n = numerosPraca({ meta: 100 }, [l], HR);
+  assert.equal(n.corridas, 0); assert.equal(n.corridasAnt, 900); assert.equal(n.perdidas, 1);
+});
+
+test('relatório: lojas em queda contra o esperado proporcional', () => {
+  const q = lojasEmQueda([...lojasA, ...lojasB, lj({ entregasMes: 0, entregasMesAnterior: 20 })], new Date(2026, 9, 12), HR);
+  assert.deepEqual(q.map(x => [x.ant, x.esperado, x.atual, x.perda]), [[400, 160, 0, 160], [300, 120, 50, 70]]);
 });
