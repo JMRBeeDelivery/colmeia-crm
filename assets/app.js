@@ -2,7 +2,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { CONFIG } from './config.js';
 import { FASES, classificar as classificarBase, parseEntrada, prepararImportacao, prepararMetas, somarIndicadores, soDigitos as soDig,
-  LIMITES, dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda, FAIXAS_VOLUME, composicaoCarteira } from './base.js';
+  LIMITES, dataDeCorte, produzidoEhDoMes, numerosPraca, somarNumeros, avaliar, lojasEmQueda, FAIXAS_VOLUME, composicaoCarteira } from './base.js';
 
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'implicit' } });
 
@@ -97,15 +97,21 @@ function statusMeta(pj) {
   if (pj.projPct >= .85) return `<span class="chip hl">Atenção</span>`;
   return `<span class="chip warn">Abaixo do ritmo</span>`;
 }
-/** Empresas com entregas e dados da taxa de sucesso realizados por praça, a partir das lojas carregadas. */
+/** Corridas do mês, empresas com entregas e dados da taxa de sucesso por praça, a partir das lojas carregadas. */
 function realizadoPorPraca() {
   const out = {}; const cur = mesKey(hoje());
   for (const l of S.lojas.values()) {
-    const o = out[l.praca] ||= { empresas: 0, entregasTaxa: 0, pedidos: 0 };
-    if (classificar(l).atual > 0) o.empresas++;
+    const o = out[l.praca] ||= { corridas: 0, empresas: 0, entregasTaxa: 0, pedidos: 0 };
+    const atual = classificar(l).atual; o.corridas += atual;
+    if (atual > 0) o.empresas++;
     if (l.pedidosMes != null && l.mesReferencia === cur) { o.entregasTaxa += +l.entregasMes || 0; o.pedidos += +l.pedidosMes || 0; }
   }
   return out;
+}
+/** Praça com o produzido deste mês: se o gravado é de um mês anterior, usa a soma das lojas até a data de corte (como no Relatórios). */
+function pracaDoMes(p, real, corte) {
+  if (produzidoEhDoMes(p, new Date())) return p;
+  return { ...p, produzido: (real[p.id] || {}).corridas || 0, produzidoAte: corte ? iso(corte) : null };
 }
 const indicadores = (p, real) => ({ meta: p.meta ? +p.meta : null, metaEmpresas: p.metaEmpresas, metaTaxa: p.metaTaxa, ...(real[p.id] || { empresas: 0, entregasTaxa: 0, pedidos: 0 }) });
 const pct1 = x => x == null ? '—' : (x * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
@@ -300,22 +306,25 @@ $('counters').addEventListener('click', e => {
 
 /* ---------- Metas ---------- */
 function viewMetas() {
-  const ps = pracasFiltradas(); const papel = papelAtual();
-  if (!ps.length) return `<div class="empty"><h2>Nenhuma praça neste filtro</h2></div>`;
+  const ps0 = pracasFiltradas(); const papel = papelAtual();
+  if (!ps0.length) return `<div class="empty"><h2>Nenhuma praça neste filtro</h2></div>`;
+  const real = realizadoPorPraca(); const corte = dataDeCorte(ps0, new Date());
+  const ps = ps0.map(p => pracaDoMes(p, real, corte));
   const comMeta = ps.filter(p => p.meta);
-  const tMeta = comMeta.reduce((s, p) => s + +p.meta, 0), tProdMeta = comMeta.reduce((s, p) => s + (+p.produzido || 0), 0);
+  const tMeta = comMeta.reduce((s, p) => s + +p.meta, 0);
   const tProd = ps.reduce((s, p) => s + (+p.produzido || 0), 0);
-  const tProj = comMeta.reduce((s, p) => s + (projecao(p).proj || 0), 0);
   const ref = ps.map(p => p.produzidoAte).filter(Boolean).sort().pop();
-  const real = realizadoPorPraca();
+  // projeção de grupo sobre o total de todas as praças, na data de corte (o mesmo cálculo do Relatórios)
+  const projDe = list => { const d = parseD(ref); const prod = list.reduce((s, p) => s + (+p.produzido || 0), 0); return d ? Math.round(prod / d.getDate() * new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()) : 0; };
+  const tProj = projDe(ps);
   const ind = ps => somarIndicadores(ps.map(p => indicadores(p, real)));
-  const tI = ind(ps); const tEmpMeta = ind(ps.filter(p => p.metaEmpresas != null));
+  const tI = ind(ps);
   const tiles = `<div class="tiles">
     <div class="tile"><span>Meta do mês</span><b>${nf(tMeta)}</b><small>corridas · ${comMeta.length} de ${ps.length} praças com meta</small></div>
-    <div class="tile"><span>Produzido</span><b>${nf(tProd)}</b><small>até ${fmtDM(ref)}</small></div>
-    <div class="tile"><span>Atingido</span><b>${tMeta ? pctf(tProdMeta / tMeta) : '—'}</b><small>das praças com meta</small></div>
+    <div class="tile"><span>Produzido</span><b>${nf(tProd)}</b><small>até ${fmtDM(ref)} · todas as praças</small></div>
+    <div class="tile"><span>Atingido</span><b>${tMeta ? pctf(tProd / tMeta) : '—'}</b><small>produzido de todas as praças ÷ meta</small></div>
     <div class="tile"><span>Projeção do mês</span><b>${tMeta ? pctf(tProj / tMeta) : '—'}</b><small>${nf(tProj)} corridas no ritmo atual</small></div>
-    <div class="tile"><span>Empresas com entregas</span><b>${nf(tI.empresas)}</b><small>${tEmpMeta.metaEmpresas ? `${pctf(tEmpMeta.empresas / tEmpMeta.metaEmpresas)} da meta de ${nf(Math.round(tEmpMeta.metaEmpresas))}` : 'sem meta'}</small></div>
+    <div class="tile"><span>Empresas com entregas</span><b>${nf(tI.empresas)}</b><small>${tI.metaEmpresas ? `${pctf(tI.empresas / tI.metaEmpresas)} da meta de ${nf(Math.round(tI.metaEmpresas))}` : 'sem meta'}</small></div>
     <div class="tile"><span>Taxa de sucesso</span><b>${pct1(tI.taxa)}</b><small>${tI.metaTaxa != null ? `meta ${pct1(tI.metaTaxa)}` : 'sem meta'}${tI.taxa == null ? ' · a base ainda não traz pedidos' : ''}</small></div></div>`;
   let groups = [];
   if (papel === 'gestor') {
@@ -328,13 +337,15 @@ function viewMetas() {
   groups = groups.filter(g => g.ps.length);
   const ord = a => a.slice().sort((x, y) => (+y.meta || -1) - (+x.meta || -1) || (+y.produzido || 0) - (+x.produzido || 0));
   const body = groups.map(g => {
-    const gm = g.ps.filter(p => p.meta); const m = gm.reduce((s, p) => s + +p.meta, 0), pr = gm.reduce((s, p) => s + (+p.produzido || 0), 0), pj = gm.reduce((s, p) => s + (projecao(p).proj || 0), 0);
-    const gi = ind(g.ps.filter(p => p.metaEmpresas != null)), gt = ind(g.ps);
+    // resultado do grupo = todas as praças, com ou sem meta; a meta é a soma das metas que existem
+    const m = g.ps.reduce((s, p) => s + (+p.meta || 0), 0), pr = g.ps.reduce((s, p) => s + (+p.produzido || 0), 0), pj = projDe(g.ps);
+    const sumProd = m ? ` · meta ${nf(m)} · produzido ${nf(pr)} (${pctf(pr / m)}) · projeção ${pctf(pj / m)}` : pr ? ` · produzido ${nf(pr)}` : '';
+    const gt = ind(g.ps);
     const rows = ord(g.ps).map(p => { const x = projecao(p), i = indicadores(p, real), t = i.pedidos ? i.entregasTaxa / i.pedidos : null; return `<tr data-praca="${esc(p.id)}"><td><b>${esc(p.rotulo)}</b></td>${papel !== 'comercial' ? `<td>${p.comercialId ? esc(nomePessoa(p.comercialId)) : '<span class="hint">—</span>'}</td>` : ''}<td class="r num">${p.meta ? nf(p.meta) : '—'}</td><td class="r num">${nf(x.prod)}</td><td>${meterHTML(x)}</td><td class="r num">${x.proj != null ? nf(x.proj) : '—'}</td><td class="r num">${x.ritmo != null ? nf(x.ritmo) : '—'}</td><td>${empresasHTML(i.empresas, i.metaEmpresas)}</td><td>${taxaHTML(t, i.metaTaxa)}</td><td>${statusMeta(x)}</td></tr>`; }).join('');
     const cards = ord(g.ps).map(p => { const x = projecao(p), i = indicadores(p, real), t = i.pedidos ? i.entregasTaxa / i.pedidos : null; return `<button class="mcard" data-praca="${esc(p.id)}"><div class="hd"><b>${esc(p.rotulo)}</b>${statusMeta(x)}</div>${papel !== 'comercial' && p.comercialId ? `<span class="hint">${esc(nomePessoa(p.comercialId))}</span>` : ''}${meterHTML(x)}<div class="nums"><span>Meta<b>${p.meta ? nf(p.meta) : '—'}</b></span><span>Produzido<b>${nf(x.prod)}</b></span><span>Precisa/dia<b>${x.ritmo != null ? nf(x.ritmo) : '—'}</b></span><span>Empresas<b>${nf(i.empresas)}${i.metaEmpresas != null ? `<small class="hint"> / ${nf(Math.round(i.metaEmpresas))}</small>` : ''}</b></span><span>Taxa de sucesso<b>${pct1(t)}${i.metaTaxa != null ? `<small class="hint"> / ${pct1(i.metaTaxa)}</small>` : ''}</b></span></div></button>`; }).join('');
-    const sumEmp = gi.metaEmpresas ? ` · empresas ${nf(gi.empresas)} de ${nf(Math.round(gi.metaEmpresas))}` : '';
+    const sumEmp = gt.metaEmpresas ? ` · empresas ${nf(gt.empresas)} de ${nf(Math.round(gt.metaEmpresas))}` : '';
     const sumTaxa = gt.metaTaxa != null ? ` · taxa ${gt.taxa != null ? pct1(gt.taxa) : 'sem dado'} (meta ${pct1(gt.metaTaxa)})` : '';
-    return `<section class="mgroup"><h2>${esc(g.tit)} ${g.sub ? `<small>${esc(g.sub)}</small>` : ''}</h2><div class="gsum">${g.ps.length} praça${g.ps.length > 1 ? 's' : ''}${m ? ` · meta ${nf(m)} · produzido ${nf(pr)} (${pctf(pr / m)}) · projeção ${pctf(pj / m)}` : ''}${sumEmp}${sumTaxa}</div>
+    return `<section class="mgroup"><h2>${esc(g.tit)} ${g.sub ? `<small>${esc(g.sub)}</small>` : ''}</h2><div class="gsum">${g.ps.length} praça${g.ps.length > 1 ? 's' : ''}${sumProd}${sumEmp}${sumTaxa}</div>
       <div class="tbl-wrap"><table><thead><tr><th>Praça</th>${papel !== 'comercial' ? '<th>Comercial</th>' : ''}<th class="r">Meta</th><th class="r">Produzido</th><th>Atingido</th><th class="r">Projeção</th><th class="r">Precisa/dia</th><th title="Lojas com ao menos uma entrega no mês: realizado / meta · % da meta">Empresas</th><th title="Entregas finalizadas ÷ pedidos: realizado / meta">Taxa de sucesso</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div><div class="mcards">${cards}</div></section>`;
   }).join('');
   return tiles + body + `<p class="hint" style="padding-bottom:24px">Projeção = produzido ÷ dias corridos até a data da produção × dias do mês. "Precisa/dia" é quanto falta por dia para bater a meta. Empresas com entregas = lojas com ao menos uma entrega no mês. Taxa de sucesso = entregas finalizadas ÷ pedidos, ponderada pelos pedidos nos totais; aparece quando a base traz pedidos ou cancelamentos. Toque numa praça para ver o funil dela.</p>`;
@@ -366,13 +377,13 @@ const avaliarPracas = (ps, nums, corte) => avaliar(somarNumeros(ps.map(p => nums
 function pontosDe(u, a, mA, mC) {
   const bons = [], crit = [], ir = u.ir;
   const add = (lista, peso, txt) => lista.push({ ...u, peso, txt, ir });
-  if (a.st.corridas === 'bom') add(bons, Math.max(a.proj, a.corridasMeta) - a.meta + 1, a.pct >= 1 ? `Meta de corridas já batida: ${pctf(a.pct)} (${nf(a.corridasMeta)} de ${nf(a.meta)}).` : `Projeção de ${pctf(a.projPct)} da meta de corridas: ${nf(a.proj - a.meta)} acima.`);
-  if (a.st.corridas === 'critico') add(crit, a.meta - a.proj, `Projeção de ${pctf(a.projPct)} da meta de corridas. Precisa de ${nf(a.precisaDia)}/dia; está em ${nf0(a.ritmoMeta)}/dia.`);
+  if (a.st.corridas === 'bom') add(bons, Math.max(a.proj, a.corridas) - a.meta + 1, a.pct >= 1 ? `Meta de corridas já batida: ${pctf(a.pct)} (${nf(a.corridas)} de ${nf(a.meta)}).` : `Projeção de ${pctf(a.projPct)} da meta de corridas: ${nf(a.proj - a.meta)} acima.`);
+  if (a.st.corridas === 'critico') add(crit, a.meta - a.proj, `Projeção de ${pctf(a.projPct)} da meta de corridas. Precisa de ${nf(a.precisaDia)}/dia; está em ${nf0(a.ritmo)}/dia.`);
   if (a.st.ritmo === 'bom') add(bons, (a.ritmo - a.ritmoAnt) * a.dm, `Ritmo ${pctf(a.varRitmo)} acima de ${mA}: ${nf0(a.ritmo)}/dia contra ${nf0(a.ritmoAnt)}/dia.`);
   if (a.st.ritmo === 'critico') add(crit, (a.ritmoAnt - a.ritmo) * a.dm, `Ritmo ${pctf(-a.varRitmo)} abaixo de ${mA}: ${nf0(a.ritmo)}/dia contra ${nf0(a.ritmoAnt)}/dia.`);
   const porEmp = a.empresas ? a.corridas / a.empresas : 0;
-  if (a.st.empresas === 'bom') add(bons, (a.empresasMeta - a.metaEmpresas + 1) * porEmp, `Meta de empresas batida: ${nf(a.empresasMeta)} com entregas, de ${nf0(a.metaEmpresas)}.`);
-  if (a.st.empresas === 'critico') add(crit, (a.metaEmpresas - a.empresasMeta) * porEmp, `${nf(a.empresasMeta)} empresas com entregas: ${pctf(a.empPct)} da meta de ${nf0(a.metaEmpresas)}.`);
+  if (a.st.empresas === 'bom') add(bons, (a.empresas - a.metaEmpresas + 1) * porEmp, `Meta de empresas batida: ${nf(a.empresas)} com entregas, de ${nf0(a.metaEmpresas)}.`);
+  if (a.st.empresas === 'critico') add(crit, (a.metaEmpresas - a.empresas) * porEmp, `${nf(a.empresas)} empresas com entregas: ${pctf(a.empPct)} da meta de ${nf0(a.metaEmpresas)}.`);
   if (a.st.taxa === 'bom') add(bons, a.ped * (a.taxa - a.metaTaxa) + 1, `Taxa de sucesso de ${pct1(a.taxa)}, acima da meta de ${pct1(a.metaTaxa)}.`);
   if (a.st.taxa === 'critico') add(crit, a.ped * (a.metaTaxa - a.taxa), `Taxa de sucesso de ${pct1(a.taxa)} (meta ${pct1(a.metaTaxa)}): ${nf(a.cancelados)} pedidos cancelados no mês.`);
   else if (a.difTaxaAnt != null && a.difTaxaAnt <= -LIMITES.taxaVar) add(crit, a.ped * -a.difTaxaAnt, `Taxa de sucesso caiu ${pp(-a.difTaxaAnt)} em relação a ${mA} (${pct1(a.taxaAnt)} → ${pct1(a.taxa)}).`);
@@ -385,7 +396,7 @@ function tilesRel(a, mA, corte) {
   const dRitmo = a.varRitmo != null ? `<small class="${stCls(a.st.ritmo)}">${sinal(a.varRitmo)} no ritmo diário vs ${mA}</small>` : `<small>${mA} sem base para comparar</small>`;
   const tile = (st, tit, val, ...sub) => `<div class="tile ${st ? 'st-' + st : ''}"><span>${tit}</span><b>${val}</b>${sub.filter(Boolean).join('')}</div>`;
   return `<div class="tiles">
-    ${tile(a.st.corridas, 'Corridas · projeção', a.projPct != null ? pctf(a.projPct) : '—', `<small>${a.meta ? `${nf(a.proj)} projetadas · meta ${nf(a.meta)}` : 'sem meta'}</small>`, a.precisaDia != null && a.st.corridas !== 'bom' ? `<small>precisa de ${nf(a.precisaDia)}/dia (hoje ${nf0(a.ritmoMeta)}/dia)</small>` : '')}
+    ${tile(a.st.corridas, 'Corridas · projeção', a.projPct != null ? pctf(a.projPct) : '—', `<small>${a.meta ? `${nf(a.proj)} projetadas · meta ${nf(a.meta)}` : 'sem meta'}</small>`, a.precisaDia != null && a.st.corridas !== 'bom' ? `<small>precisa de ${nf(a.precisaDia)}/dia (hoje ${nf0(a.ritmo)}/dia)</small>` : '')}
     ${tile(a.st.ritmo === 'estavel' ? null : a.st.ritmo, `Corridas até ${pad(corte.getDate())}/${pad(corte.getMonth() + 1)}`, nf(a.corridas), `<small>${mA} no mesmo período: ${nf(a.antProp)}</small>`, dRitmo)}
     ${tile(a.st.empresas, 'Empresas com entregas', nf(a.empresas), `<small>${a.metaEmpresas ? `${pctf(a.empPct)} da meta de ${nf0(a.metaEmpresas)}` : 'sem meta'}</small>`, `<small>${mA}: ${nf(a.empresasAnt)} no mês todo</small>`)}
     ${tile(a.st.taxa, 'Taxa de sucesso', pct1(a.taxa), `<small>${a.metaTaxa != null ? `meta ${pct1(a.metaTaxa)}` : 'sem meta'}${a.taxa == null ? ' · a base ainda não traz pedidos' : ''}</small>`, a.taxaAnt != null ? `<small class="${a.difTaxaAnt >= LIMITES.taxaVar ? 'up' : a.difTaxaAnt <= -LIMITES.taxaVar ? 'down' : ''}">${mA}: ${pct1(a.taxaAnt)}${a.difTaxaAnt != null ? ` (${sinal(a.difTaxaAnt, pp)})` : ''}</small>` : '')}
@@ -409,12 +420,12 @@ function listaPontos(itens, vazio) {
 function tabelaRel(tit, sub, linhas, mA) {
   if (!linhas.length) return '';
   linhas.sort((x, y) => (y.a.projPct ?? -1) - (x.a.projPct ?? -1) || y.a.corridas - x.a.corridas);
-  const emp = a => a.metaEmpresas ? `<span class="num ${stCls(a.st.empresas)}">${nf(a.empresasMeta)}</span><span class="hint"> / ${nf0(a.metaEmpresas)}</span>` : `<span class="num">${nf(a.empresas)}</span>`;
+  const emp = a => a.metaEmpresas ? `<span class="num ${stCls(a.st.empresas)}">${nf(a.empresas)}</span><span class="hint"> / ${nf0(a.metaEmpresas)}</span>` : `<span class="num">${nf(a.empresas)}</span>`;
   const tx = a => a.taxa == null ? '<span class="hint">—</span>' : `<span class="num ${stCls(a.st.taxa)}">${pct1(a.taxa)}</span>${a.metaTaxa != null ? `<span class="hint"> / ${pct1(a.metaTaxa)}</span>` : ''}`;
   const rit = a => `<span class="num ${stCls(a.st.ritmo)}">${sinal(a.varRitmo)}</span>`;
   const meter = a => meterHTML({ meta: a.meta, pct: a.pct, projPct: a.projPct });
   const rows = linhas.map(({ nome, sub: s, a, ir }) => `<tr ${ir || 'class="nolink"'}><td><b>${esc(nome)}</b>${s ? `<div class="hint">${esc(s)}</div>` : ''}</td><td class="r num">${nf(a.corridas)}</td><td class="r num">${a.meta ? nf(a.meta) : '—'}</td><td>${meter(a)}</td><td class="r num ${stCls(a.st.corridas)}">${a.projPct != null ? pctf(a.projPct) : '—'}</td><td class="r num">${nf(a.antProp)}</td><td class="r">${rit(a)}</td><td>${emp(a)}</td><td>${tx(a)}</td><td class="r num">${a.difTaxaAnt != null ? sinal(a.difTaxaAnt, pp) : '—'}</td><td class="r num">${a.perdidas ? nf(a.perdidas) : '—'}</td><td>${stChip(a.geral)}</td></tr>`).join('');
-  const cards = linhas.map(({ nome, sub: s, a, ir }) => `<${ir ? 'button' : 'div'} class="mcard" ${ir || ''}><div class="hd"><b>${esc(nome)}</b>${stChip(a.geral)}</div>${s ? `<span class="hint">${esc(s)}</span>` : ''}${a.meta ? meter(a) : ''}<div class="nums"><span>Projeção<b class="${stCls(a.st.corridas)}">${a.projPct != null ? pctf(a.projPct) : '—'}</b></span><span>Ritmo vs ${esc(mA.slice(0, 3))}.<b class="${stCls(a.st.ritmo)}">${sinal(a.varRitmo)}</b></span><span>Corridas<b>${nf(a.corridas)}</b></span><span>Empresas<b class="${stCls(a.st.empresas)}">${nf(a.empresasMeta || a.empresas)}${a.metaEmpresas ? `<small class="hint"> / ${nf0(a.metaEmpresas)}</small>` : ''}</b></span><span>Taxa<b class="${stCls(a.st.taxa)}">${pct1(a.taxa)}</b></span><span>A recuperar<b>${nf(a.perdidas)}</b></span></div></${ir ? 'button' : 'div'}>`).join('');
+  const cards = linhas.map(({ nome, sub: s, a, ir }) => `<${ir ? 'button' : 'div'} class="mcard" ${ir || ''}><div class="hd"><b>${esc(nome)}</b>${stChip(a.geral)}</div>${s ? `<span class="hint">${esc(s)}</span>` : ''}${a.meta ? meter(a) : ''}<div class="nums"><span>Projeção<b class="${stCls(a.st.corridas)}">${a.projPct != null ? pctf(a.projPct) : '—'}</b></span><span>Ritmo vs ${esc(mA.slice(0, 3))}.<b class="${stCls(a.st.ritmo)}">${sinal(a.varRitmo)}</b></span><span>Corridas<b>${nf(a.corridas)}</b></span><span>Empresas<b class="${stCls(a.st.empresas)}">${nf(a.empresas)}${a.metaEmpresas ? `<small class="hint"> / ${nf0(a.metaEmpresas)}</small>` : ''}</b></span><span>Taxa<b class="${stCls(a.st.taxa)}">${pct1(a.taxa)}</b></span><span>A recuperar<b>${nf(a.perdidas)}</b></span></div></${ir ? 'button' : 'div'}>`).join('');
   return `<section class="mgroup">${tit ? `<h2>${esc(tit)} ${sub ? `<small>${esc(sub)}</small>` : ''}</h2>` : ''}
     <div class="tbl-wrap"><table class="rel-tbl"><thead><tr><th></th><th class="r">Corridas</th><th class="r">Meta</th><th>Atingido</th><th class="r">Projeção</th><th class="r" title="Corridas do mês anterior no mesmo número de dias (proporcional)">${esc(mA)} prop.</th><th class="r" title="Ritmo diário deste mês contra o do mês anterior">Ritmo</th><th title="Empresas com entregas: realizado / meta">Empresas</th><th title="Entregas finalizadas ÷ pedidos: realizado / meta">Taxa</th><th class="r" title="Taxa deste mês menos a do mês anterior">Taxa vs ${esc(mA.slice(0, 3))}.</th><th class="r" title="Lojas que entregaram no mês anterior e ainda não neste">A recuperar</th><th>Situação</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="mcards">${cards}</div></section>`;

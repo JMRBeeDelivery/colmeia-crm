@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classificar, indicePracas, acharPraca, prepararImportacao, parseEntrada, prepararMetas, somarIndicadores,
-  dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda, composicaoCarteira, faixaDoVolume } from '../assets/base.js';
+  dataDeCorte, numerosPraca, somarNumeros, avaliar, lojasEmQueda, composicaoCarteira, faixaDoVolume, produzidoEhDoMes } from '../assets/base.js';
 
 const H = new Date(2026, 8, 25); // 25/09/2026
 const f = l => classificar({ mesReferencia: '2026-09', ...l }, H).fase;
@@ -194,15 +194,17 @@ test('relatório: meta, projeção e ritmo proporcional ao mês anterior', () =>
   assert.equal(a.geral, 'critico');
 });
 
-test('relatório: praça sem meta usa as lojas; soma compara a meta só com quem tem meta', () => {
+test('relatório: praça sem meta usa as lojas; o resultado do grupo soma todas as praças, com ou sem meta', () => {
   const corte = new Date(2026, 9, 12);
   const nB = numerosPraca(praB, lojasB, HR);
   const b = avaliar(somarNumeros([nB]), corte);
   assert.equal(b.corridas, 50); assert.equal(b.metaTaxa, 0.95); assert.equal(b.st.corridas, null);
   assert.equal(b.st.ritmo, 'critico');                  // 4,2/dia contra 10/dia
   const t = avaliar(somarNumeros([numerosPraca(praA, lojasA, HR), nB]), corte);
-  assert.equal(t.pracas, 2); assert.equal(t.corridas, 1250); assert.equal(t.corridasMeta, 1200); assert.equal(t.meta, 3100);
-  assert.equal(t.metaTaxa, 0.9); assert.equal(t.metaEmpresas, 3); assert.equal(t.empresasMeta, 2);
+  assert.equal(t.pracas, 2); assert.equal(t.corridas, 1250); assert.equal(t.meta, 3100);
+  assert.ok(Math.abs(t.pct - 1250 / 3100) < 1e-9);       // 1.250 de todas as praças ÷ meta de 3.100
+  assert.equal(t.proj, Math.round(1250 / 12 * 31));
+  assert.equal(t.metaTaxa, 0.9); assert.equal(t.metaEmpresas, 3); assert.equal(t.empresas, 3); assert.equal(t.empPct, 1);
   const s = avaliar(somarNumeros([numerosPraca({ ...praA, meta: 4000 }, lojasA, HR)]), corte);
   assert.equal(s.st.corridas, 'critico');               // 3.100 de 4.000 = 77,5%
   assert.equal(avaliar(somarNumeros([numerosPraca({ ...praA, meta: 3500 }, lojasA, HR)]), corte).st.corridas, 'atencao');
@@ -238,4 +240,11 @@ test('composição da carteira: faixas do funil, prospecção fora, ativação p
   const s = composicaoCarteira(carteira, { base: 'anterior', hoje: HR });
   assert.equal(s.lojas, 3);                                     // a loja que começou em outubro fica de fora
   assert.deepEqual(Object.fromEntries(Object.entries(s.faixas).map(([k, v]) => [k, v.lojas])), { inativo: 0, v1: 0, v2: 1, v3: 1, v4: 0, v5: 1 });
+});
+
+test('relatório e metas: produzido gravado de mês anterior não vale; usa a soma das lojas', () => {
+  const velha = { meta: null, produzido: 22, produzidoAte: '2026-09-16' };
+  assert.equal(produzidoEhDoMes(velha, HR), false);
+  assert.equal(produzidoEhDoMes(praA, HR), true);
+  assert.equal(numerosPraca(velha, [lj({ entregasMes: 5, entregasMesAnterior: 30 })], HR).corridas, 5);
 });

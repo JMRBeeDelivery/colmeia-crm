@@ -142,8 +142,8 @@ Cada tela lista o arquivo de captura, o que mostra e como se comporta.
 - Tela inicial do gestor e da supervisão. O comercial começa no Funil.
 - **6 tiles** (grade 3×2 no desktop, 2 colunas no celular):
   - Meta do mês: "corridas · X de Y praças com meta";
-  - Produzido: "até dd/mm";
-  - Atingido: "das praças com meta";
+  - Produzido: "até dd/mm · todas as praças";
+  - Atingido: "produzido de todas as praças ÷ meta". O resultado do time e das regionais soma todas as operações, com ou sem meta;
   - Projeção do mês: "N corridas no ritmo atual";
   - Empresas com entregas: total de lojas com entrega no mês e "N% da meta de M";
   - Taxa de sucesso: realizado (uma casa decimal, ex. "89,5%") e "meta 90,9%"; sem pedidos na base, mostra "—" e "a base ainda não traz pedidos".

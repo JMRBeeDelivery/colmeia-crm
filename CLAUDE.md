@@ -31,6 +31,8 @@ Metas (migração 003): cada praça tem três metas; null = sem meta.
 
 Como cada uma é medida:
 - **Corridas:** projeção = `produzido / dia(produzido_ate) × dias_do_mês`. O sync recalcula `produzido` com a soma de `entregas_mes` das lojas da base (`recalcular_produzido`).
+  - Praça sem lojas na base do mês não é recalculada e guarda o produzido de um mês anterior. Por isso, quando `produzidoEhDoMes` é falso, Metas (`pracaDoMes`) e Relatórios (`numerosPraca`) usam a soma das lojas.
+  - **Resultado de grupo** (time, regional, comercial) = soma de **todas** as praças, com ou sem meta, nos dois painéis: corridas, % atingido, projeção e empresas. A meta do grupo é a soma das metas que existem (`somarNumeros`, `viewMetas`).
 - **Empresas:** lojas com `classificar(l).atual > 0`.
 - **Taxa de sucesso:** Σ `entregas_mes` ÷ Σ `lojas.pedidos_mes`, só das lojas com pedidos no mês atual. Até a base trazer pedidos ou cancelamentos, fica "sem dado".
 - **Totais** (`somarIndicadores` em `base.js`): somam corridas e empresas. A taxa é ponderada pelos pedidos: Σ meta ÷ Σ (meta ÷ taxa), igual à planilha de metas (confere com os totais por supervisor dela).

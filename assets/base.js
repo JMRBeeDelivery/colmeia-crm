@@ -325,6 +325,12 @@ export function dataDeCorte(pracas, hoje = new Date()) {
 }
 
 /**
+ * O produzido gravado na praça vale para o mês de hoje? Praça sem lojas na base deste mês não é recalculada pelo
+ * sync e fica com o número de um mês anterior; nesse caso, as corridas do mês vêm da soma das lojas.
+ */
+export const produzidoEhDoMes = (p, hoje = new Date()) => { const r = parseD(p.produzidoAte); return Boolean(r) && mesKey(r) === mesKey(new Date(hoje)); };
+
+/**
  * Números de uma praça no mês corrente e no anterior, a partir das lojas dela.
  * p: { meta, metaEmpresas, metaTaxa, produzido, produzidoAte }. As corridas do mês seguem a aba Metas
  * (produzido, quando é deste mês); o mês anterior vem das lojas (entregas_mes_anterior, com a virada de mês).
@@ -342,24 +348,24 @@ export function numerosPraca(p, lojas, hoje = new Date()) {
     if (c.canceladosAnt != null) { n.entTaxaAnt += c.ant; n.pedAnt += c.ant + c.canceladosAnt; }
     if (c.ant > 0 && c.atual === 0) { n.perdidas++; n.corridasPerdidas += c.ant; }
   }
-  const ref = parseD(p.produzidoAte);
-  n.corridas = ref && mesKey(ref) === mesKey(new Date(hoje)) ? +p.produzido || 0 : somaLojas;
+  n.corridas = produzidoEhDoMes(p, hoje) ? +p.produzido || 0 : somaLojas;
   return n;
 }
 
 const SOMAVEIS = ['corridas', 'corridasAnt', 'empresas', 'empresasAnt', 'entTaxa', 'ped', 'entTaxaAnt', 'pedAnt', 'perdidas', 'corridasPerdidas'];
 /**
  * Soma praças (time, regional, comercial). Metas de corridas e de empresas comparam só com as praças que têm meta
- * (corridasMeta, empresasMeta). A meta de taxa é ponderada pelos pedidos, como em somarIndicadores.
+ * Não há separação por meta: o resultado é sempre o de todas as praças, e as metas são a soma das metas que existem.
+ * A meta de taxa é ponderada pelos pedidos, como em somarIndicadores.
  */
 export function somarNumeros(lista) {
-  const s = { pracas: lista.length, meta: null, metaEmpresas: null, metaTaxa: null, corridasMeta: 0, empresasMeta: 0 };
+  const s = { pracas: lista.length, meta: null, metaEmpresas: null, metaTaxa: null };
   SOMAVEIS.forEach(k => { s[k] = 0; });
   let entMeta = 0, pedMeta = 0;
   for (const n of lista) {
     SOMAVEIS.forEach(k => { s[k] += n[k] || 0; });
-    if (n.meta) { s.meta = (s.meta || 0) + n.meta; s.corridasMeta += n.corridas; }
-    if (n.metaEmpresas != null) { s.metaEmpresas = (s.metaEmpresas || 0) + n.metaEmpresas; s.empresasMeta += n.empresas; }
+    if (n.meta) s.meta = (s.meta || 0) + n.meta;
+    if (n.metaEmpresas != null) s.metaEmpresas = (s.metaEmpresas || 0) + n.metaEmpresas;
     if (n.meta && n.metaTaxa) { entMeta += n.meta; pedMeta += n.meta / n.metaTaxa; }
   }
   s.metaTaxa = pedMeta ? entMeta / pedMeta : lista.length === 1 ? lista[0].metaTaxa : null;
@@ -374,16 +380,16 @@ export function somarNumeros(lista) {
  */
 export function avaliar(s, corte) {
   const L = LIMITES; const D = corte.getDate(), dm = diasDoMes(corte), dmAnt = diasDoMesAnterior(corte);
-  const a = { ...s, D, dm, dmAnt, pct: null, proj: null, projPct: null, precisaDia: null, ritmoMeta: null, empPct: null };
+  const a = { ...s, D, dm, dmAnt, pct: null, proj: null, projPct: null, precisaDia: null, empPct: null };
   a.ritmo = s.corridas / D; a.ritmoAnt = s.corridasAnt / dmAnt;
   a.antProp = Math.round(s.corridasAnt * D / dmAnt);
   a.varRitmo = s.corridasAnt >= L.baseRitmo ? a.ritmo / a.ritmoAnt - 1 : null;
   if (s.meta) {
-    a.pct = s.corridasMeta / s.meta; a.ritmoMeta = s.corridasMeta / D;
-    a.proj = Math.round(a.ritmoMeta * dm); a.projPct = a.proj / s.meta;
-    a.precisaDia = D < dm ? Math.max(0, Math.ceil((s.meta - s.corridasMeta) / (dm - D))) : null;
+    a.pct = s.corridas / s.meta;
+    a.proj = Math.round(a.ritmo * dm); a.projPct = a.proj / s.meta;
+    a.precisaDia = D < dm ? Math.max(0, Math.ceil((s.meta - s.corridas) / (dm - D))) : null;
   }
-  if (s.metaEmpresas) a.empPct = s.empresasMeta / s.metaEmpresas;
+  if (s.metaEmpresas) a.empPct = s.empresas / s.metaEmpresas;
   a.taxa = s.ped ? s.entTaxa / s.ped : null; a.taxaAnt = s.pedAnt ? s.entTaxaAnt / s.pedAnt : null;
   a.difTaxaAnt = a.taxa != null && a.taxaAnt != null ? a.taxa - a.taxaAnt : null;
   a.cancelados = s.ped - s.entTaxa;
