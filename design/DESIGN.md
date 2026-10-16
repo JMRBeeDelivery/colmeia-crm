@@ -265,6 +265,16 @@ Aba entre Metas e Funil, para todos os papéis. Usa os filtros de comercial e de
   - Tabelas "Por regional" (gestor) e "Por comercial" (ou "Por praça"), com a barra de composição e o "% N" por faixa. No celular viram cartões com a barra e 6 números.
 - **Lojas em queda:** as 15 com maior perda contra o esperado proporcional, com as colunas {mês anterior} · Esperado até {data} · Realizado · Queda (chip `warn`). Tocar abre a gaveta da loja.
 - **Rodapé** em `.hint` explicando os cálculos e os limites.
+- **Exportar PDF:** botão contornado na barra, visível só nesta aba. Abre o modal "Exportar relatório em PDF".
+  - **Escopo** em pílulas (`.checks`): Geral, Regional (só gestor) e Operações. A pílula marcada usa `--accent-soft`.
+  - **Regional:** um select.
+  - **Operações:** lista com rolagem e caixas de marcar, agrupadas por regional (gestor) ou por comercial (supervisor). O comercial aparece embaixo do nome da praça. Tem "Marcar todas", "Limpar" e o contador "N de M marcadas".
+  - O modal abre com o que está filtrado na tela.
+  - "Gerar PDF" abre a impressão do navegador ("Salvar como PDF").
+- **No PDF** (A4 deitado, sempre tema claro):
+  - **Cabeçalho:** a marca à esquerda; à direita, "Relatório comercial · {escopo}", "Gerado em … por … · base atualizada em …" e a lista das operações quando são mais de 3. Embaixo, uma linha `--accent` de 2 px.
+  - **Conteúdo:** o mesmo da tela, com as tabelas no lugar dos cartões. As seções recolhidas e o "Ver mais" saem abertos. Saem fora as dicas de "toque", o seletor de base da composição (fica só o escolhido) e os links.
+  - **Quebras de página:** tiles, cartões dos painéis e linhas de tabela não se partem, e o cabeçalho das tabelas se repete em cada página.
 - **No dia 1 do mês**, estado vazio: "O mês acabou de virar".
 - **Telas médias (761–1100 px):** com 6 abas no topo, o nome e o papel do usuário saem da barra; o avatar continua.
 

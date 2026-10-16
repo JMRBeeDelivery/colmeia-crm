@@ -276,6 +276,24 @@ tr.nolink{cursor:default}
 .rel-det{margin-bottom:22px}
 .rel-det summary{font-family:var(--display);font-size:18px;font-weight:700;margin-bottom:10px}
 .rel-det summary small{font-family:var(--body);font-size:13px;color:var(--muted);font-weight:500}
+/* exportar PDF */
+#fPdf .checks label{display:inline-flex;gap:6px;align-items:center;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer}
+.checks label.on{background:var(--accent-soft);border-color:var(--accent)}
+#fPdf .pdf-ops label{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+#fPdf .pdf-ops label span{display:grid;line-height:1.25}
+#fPdf .pdf-ops label .hint{font-weight:400}
+#fPdf .msg{margin:0;min-height:0;font-weight:600;color:var(--danger)}
+.pdf-ops-hd{display:flex;gap:10px;align-items:baseline;margin-bottom:6px;flex-wrap:wrap}
+.pdf-ops{max-height:min(42vh,320px);overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:8px;display:grid;gap:10px}
+.pdf-ops .grp>b{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.pdf-ops .grp>div{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px}
+.pdf-ops label{display:flex;gap:6px;align-items:center;font-size:13px;font-weight:500;color:var(--ink)}
+.pdf-ops input{width:16px;height:16px;accent-color:var(--accent)}
+.print-area{display:none}
+.pr-head{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;border-bottom:2px solid var(--accent);padding-bottom:8px;margin-bottom:12px}
+.pr-head h1{font-family:var(--display);font-size:20px;margin:0}
+.pr-head p{margin:2px 0 0;font-size:11px;color:var(--muted)}
+.pr-head .brand .hex{width:20px;height:23px}
 .rg-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0 8px}
 .rg-head b{font-family:var(--display);font-size:16px}
 .rg-head select{height:32px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:0 8px}
@@ -321,6 +339,48 @@ tr.nolink{cursor:default}
   .form .two{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* PDF do relatório (impressão do navegador): só a área de impressão, tema claro, A4 deitado */
+@media print{
+  @page{size:A4 landscape;margin:10mm}
+  :root,:root:not([data-theme="light"]),:root[data-theme="dark"]{
+    --bg:#FFFFFF; --surface:#FFFFFF; --surface-2:#F8F7F3; --ink:#1C1A14; --muted:#69655A; --line:#E2DFD5;
+    --accent:#F5B800; --accent-ink:#1C1A14; --accent-text:#8A6300; --accent-soft:#FFF3C7;
+    --danger:#B93A22; --danger-soft:#FBE6E0; --ok:#1C7A5F; --ok-soft:#DDF2EA;
+    --f-prosp:#56688F; --f-ativ:#1C8A6C; --f-inat:#C4432A; --f-v1:#E8C35A; --f-v2:#DB9A00; --f-v3:#A8640A; --f-v4:#7A4608; --f-v5:#5C3405;
+    --shadow:none;
+  }
+  html,body{background:#fff!important}
+  body>*:not(#printArea){display:none!important}
+  #printArea{display:block;font-size:12px}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .print-area .tbl-wrap{display:block!important;overflow:visible;margin-bottom:12px}
+  .print-area .mcards{display:none!important}
+  .print-area table,.print-area .mgroup table{min-width:0!important;width:100%;font-size:10px}
+  .print-area th,.print-area td{padding:4px 6px}
+  .print-area th{position:static}
+  .print-area .meter{min-width:60px}
+  .print-area .pctcell{min-width:0;grid-template-columns:34px 1fr}
+  .print-area .cbar{min-width:90px}
+  .print-area .tiles{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .print-area .tile b{font-size:18px}
+  .print-area .panels{grid-template-columns:1fr 1fr;padding-bottom:10px}
+  .print-area .comp-leg{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .print-area .comp-bars{grid-template-columns:1fr 1fr}
+  .print-area .seg button[aria-pressed="false"]{display:none}
+  .print-area .seg{border:0;padding:0}
+  .print-area summary{list-style:none} .print-area summary::-webkit-details-marker{display:none}
+  /* o Chrome sobrepõe itens de grade na quebra de página: no PDF, painéis e listas viram blocos */
+  .print-area .panel,.print-area .ins{display:block}
+  .print-area .panel>*+*{margin-top:8px}
+  .print-area .ins li{margin-bottom:6px}
+  /* blocos pequenos não quebram; painéis e tabelas longas podem continuar na página seguinte */
+  .print-area .tile,.print-area .ins li,.print-area .comp-leg div,.print-area tr,.print-area .rel-head,.print-area .comp-bars{break-inside:avoid}
+  .print-area h2,.print-area h3,.print-area summary{break-after:avoid}
+  .print-area button{color:inherit}
+  .print-area .rel-head h2,.print-area .panel summary{display:none}
+  .print-area .linkish{display:none}
+}
 
 /* login e extras da versão hospedada */
 .login{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
@@ -394,6 +454,7 @@ tr.nolink{cursor:default}
     <select class="field" id="fCidade" aria-label="Filtrar por praça"></select>
     <input class="field search" id="fBusca" type="search" placeholder="Buscar loja, bairro, CNPJ…" aria-label="Buscar">
     <button class="btn primary newbtn" id="btnNova">+ Nova prospecção</button>
+    <button class="btn" id="btnPdf" type="button" hidden>Exportar PDF</button>
   </section>
   <section class="counters" id="counters" hidden></section>
   <main id="view"><div class="empty"><span class="hex"></span><h2>Carregando a colmeia…</h2></div></main>
@@ -487,9 +548,24 @@ tr.nolink{cursor:default}
     <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" type="button" id="pCancel">Cancelar</button><button class="btn primary" type="submit">Cadastrar loja</button></div>
   </form>
 </div>
+<div class="modal" id="mPdf" hidden>
+  <form class="box form" id="fPdf" aria-labelledby="pdfTit">
+    <h2 id="pdfTit">Exportar relatório em PDF</h2>
+    <div class="checks" role="radiogroup" aria-label="O que entra no relatório" id="pdfEscopo"></div>
+    <label id="pdfRegBox" hidden>Regional<select class="field" id="pdfReg"></select></label>
+    <div id="pdfOpsBox" hidden>
+      <div class="pdf-ops-hd"><b>Operações</b><span class="hint" id="pdfOpsN"></span><span class="spacer"></span><button class="linkish" type="button" id="pdfTodas">Marcar todas</button><button class="linkish" type="button" id="pdfNenhuma">Limpar</button></div>
+      <div class="pdf-ops" id="pdfOps"></div>
+    </div>
+    <p class="hint" style="margin:0">O navegador abre a janela de impressão. Em <b>Destino</b>, escolha <b>Salvar como PDF</b>. No celular, use <b>Compartilhar → Imprimir</b> ou <b>Salvar como PDF</b>.</p>
+    <p class="msg" id="pdfMsg" role="status"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" type="button" id="pdfCancel">Cancelar</button><button class="btn primary" type="submit">Gerar PDF</button></div>
+  </form>
+</div>
 <div class="toast" id="toast" hidden></div>
 
 </div>
+<div class="print-area" id="printArea"></div>
 <script>
 // Se o app não carregar (ex.: assets/config.js com erro), mostra um aviso em vez da tela em branco
 setTimeout(function () {

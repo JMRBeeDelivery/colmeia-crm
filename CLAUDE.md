@@ -57,6 +57,11 @@ Relatórios (aba `relatorio`, `viewRelatorio` em `app.js`; cálculos em `base.js
 - **Lojas em queda** (`lojasEmQueda`): pelo menos 30 entregas no mês anterior e abaixo de 50% do esperado proporcional.
 - Os textos dos destaques e pontos críticos ficam em `pontosDe` (`app.js`), agrupados por comercial ou praça e ordenados pelas corridas em jogo.
 - Não há histórico diário: a comparação usa só os totais do mês anterior que vêm na base.
+- **PDF** (botão "Exportar PDF", modal `#mPdf`):
+  - `imprimirRelatorio` chama `viewRelatorio({ ps, titulo })`, que ignora os filtros da barra, abre os `<details>` e tira as dicas de toque. O resultado vai para `#printArea`, e a página chama `window.print()`. Não há biblioteca de PDF.
+  - O `@media print` em `index.html` esconde todo o resto, força o tema claro e A4 deitado, e troca a grade dos painéis por blocos, porque o Chrome sobrepõe itens de grade na quebra de página.
+  - `document.title` vira o nome sugerido do arquivo; `afterprint` restaura o título e limpa a área de impressão.
+  - Escopos: Geral, Regional (só gestor) e Operações, sempre dentro de `pracasEscopo()`.
 
 Cidade → praça: `indicePracas` / `acharPraca` normalizam acentos e caixa, e aceitam `Cidade`, `Cidade UF`, partes de praças compostas (Belém–Ananindeua) e `pracas.aliases`.
 

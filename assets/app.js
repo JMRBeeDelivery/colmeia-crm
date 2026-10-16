@@ -483,15 +483,17 @@ function quedasHTML(ps, corte, mA, mostraCom) {
     <div class="mcards">${cards}</div></section>`;
 }
 
-function viewRelatorio() {
-  const ps = pracasFiltradas(); const papel = papelAtual();
+/** escopo (só no PDF): { ps, titulo } substitui os filtros da barra. */
+function viewRelatorio(escopo = null) {
+  const ps = escopo ? escopo.ps : pracasFiltradas(); const papel = papelAtual();
+  const filtrado = !escopo && Boolean(S.fCom || S.fPraca);
   if (!ps.length) return `<div class="empty"><h2>Nenhuma praça neste filtro</h2></div>`;
   const corte = dataDeCorte(ps, new Date());
   if (!corte) return `<div class="empty"><span class="hex"></span><h2>O mês acabou de virar</h2><p>O relatório volta com a primeira base do mês, amanhã cedo.</p></div>`;
   const mC = MESES[corte.getMonth()], mA = MESES[(corte.getMonth() + 11) % 12];
   const porPraca = lojasPorPraca(ps); const nums = numerosDoEscopo(ps, porPraca); const av = list => avaliarPracas(list, nums, corte);
   const total = av(ps);
-  const umComercial = papel === 'comercial' || Boolean(S.fCom || S.fPraca) || new Set(ps.map(p => p.comercialId)).size === 1;
+  const umComercial = papel === 'comercial' || filtrado || new Set(ps.map(p => p.comercialId)).size === 1;
   // unidades: praças quando o escopo é de um comercial só; senão, comerciais (e regionais para o gestor)
   const pracasU = ps.map(p => ({ nome: p.rotulo, sub: papel !== 'comercial' && p.comercialId ? nomePessoa(p.comercialId) : '', list: [p], a: av([p]), ir: `data-praca="${esc(p.id)}"` }));
   const porCom = new Map(); ps.forEach(p => { const k = p.comercialId || '_'; if (!porCom.has(k)) porCom.set(k, []); porCom.get(k).push(p); });
@@ -502,9 +504,9 @@ function viewRelatorio() {
   const bons = [], crit = [];
   unidades.forEach(u => { const r = pontosDe(u, u.a, mA, mC); bons.push(...r.bons); crit.push(...r.crit); });
   // títulos do escopo
-  const quem = S.fPraca ? nomePraca(S.fPraca) : S.fCom === '_sem' ? 'Praças sem comercial' : S.fCom ? nomePessoa(S.fCom)
+  const quem = escopo ? escopo.titulo : S.fPraca ? nomePraca(S.fPraca) : S.fCom === '_sem' ? 'Praças sem comercial' : S.fCom ? nomePessoa(S.fCom)
     : papel === 'gestor' ? 'Time todo' : papel === 'supervisor' ? (S.regionais[pessoaAtual().regional] || {}).nome || 'Minha regional' : 'Meu resultado';
-  const voltar = (S.fCom || S.fPraca) && papel !== 'comercial' ? ` <button class="linkish" id="relVoltar">ver ${papel === 'gestor' ? 'o time todo' : 'a regional toda'}</button>` : '';
+  const voltar = filtrado && papel !== 'comercial' ? ` <button class="linkish" id="relVoltar">ver ${papel === 'gestor' ? 'o time todo' : 'a regional toda'}</button>` : '';
   const periodo = `<p class="rel-per">${mC[0].toUpperCase() + mC.slice(1)} até ${pad(corte.getDate())}/${pad(corte.getMonth() + 1)} · ${total.D} de ${total.dm} dias. A comparação com ${mA} é proporcional: o mesmo número de dias, no ritmo diário de ${mA}.</p>`;
   const paineis = `<div class="panels rel-pan">
     <div class="panel pos"><h2>Destaques</h2><p>Indicadores positivos${umComercial ? ' por praça' : ' por comercial'}.</p>${listaPontos(bons, 'Nenhum indicador acima da meta ou do mês anterior por enquanto.')}</div>
@@ -514,8 +516,70 @@ function viewRelatorio() {
   if (!umComercial) tabelas += tabelaRel('Por comercial', 'toque para ver o relatório do comercial', comU, mA);
   tabelas += umComercial ? tabelaRel('Por praça', 'toque para abrir o funil da praça', pracasU, mA)
     : `<details class="rel-det"><summary>Por praça <small>${pracasU.length} praças · toque para abrir o funil da praça</small></summary>${tabelaRel('', '', pracasU, mA)}</details>`;
-  return `<section class="mgroup rel-head"><h2>${esc(quem)}${voltar}</h2>${periodo}</section>${tilesRel(total, mA, corte)}${paineis}${tabelas}${composicaoHTML({ ps, porPraca, corte, mA, mC, regU, unidades: umComercial ? pracasU : comU })}${quedasHTML(ps, corte, mA, papel !== 'comercial' && !umComercial)}
+  const html = `<section class="mgroup rel-head"><h2>${esc(quem)}${voltar}</h2>${periodo}</section>${tilesRel(total, mA, corte)}${paineis}${tabelas}${composicaoHTML({ ps, porPraca, corte, mA, mC, regU, unidades: umComercial ? pracasU : comU })}${quedasHTML(ps, corte, mA, papel !== 'comercial' && !umComercial)}
     <p class="hint" style="padding-bottom:24px">Projeção = corridas ÷ dias com dados × dias do mês. Ritmo = corridas por dia neste mês contra ${mA} (corridas de ${mA} ÷ ${total.dmAnt}); só é comparado com pelo menos ${LIMITES.baseRitmo} corridas em ${mA}. Corridas: positivo com projeção a partir de 100% da meta, crítico abaixo de ${pctf(LIMITES.proj[1])}. Empresas: crítico abaixo de ${pctf(LIMITES.empresas[1])} da meta; o número cresce ao longo do mês, por isso a comparação com ${mA} é com o mês todo. Taxa de sucesso: crítico mais de ${pp(LIMITES.taxaPp)} abaixo da meta. Situação = o pior status entre os indicadores.</p>`;
+  // no PDF: tudo aberto e sem as dicas de toque, que só valem na tela
+  return escopo ? html.replace(/<details(?=[\s>])/g, '<details open').replace(/ ?(· )?[Tt]oque (para|na) [^<.]*\.?/g, '') : html;
+}
+
+/* ---------- Exportar relatório em PDF (janela de impressão do navegador → "Salvar como PDF") ---------- */
+let pdfEsc = 'geral';
+const tituloGeral = () => { const p = pessoaAtual(), papel = papelAtual();
+  return papel === 'gestor' ? 'Time todo' : papel === 'supervisor' ? (S.regionais[p.regional] || {}).nome || 'Minha regional' : 'Operações de ' + (p ? p.nome : ''); };
+function abrirPdf() {
+  const papel = papelAtual(); const ps = pracasEscopo().slice().sort((a, b) => byPt(a.rotulo, b.rotulo));
+  const regs = papel === 'gestor' ? Object.values(S.regionais).filter(r => ps.some(p => p.regional === r.id)).sort((a, b) => byPt(a.nome, b.nome)) : [];
+  const opcoes = [['geral', papel === 'gestor' ? 'Geral (time todo)' : papel === 'supervisor' ? 'Geral (minha regional)' : 'Geral (minhas operações)'], ...(regs.length ? [['regional', 'Regional']] : []), ['operacoes', 'Operações']];
+  // começa pelo que está filtrado na tela
+  const doCom = S.fCom ? ps.filter(p => S.fCom === '_sem' ? !p.comercialId : p.comercialId === S.fCom).map(p => p.id) : [];
+  const marcadas = new Set(S.fPraca ? [S.fPraca] : doCom);
+  pdfEsc = marcadas.size ? 'operacoes' : 'geral';
+  $('pdfEscopo').innerHTML = opcoes.map(([k, n]) => `<label><input type="radio" name="pdfEsc" value="${k}" ${k === pdfEsc ? 'checked' : ''}> ${esc(n)}</label>`).join('');
+  $('pdfReg').innerHTML = regs.map(r => `<option value="${esc(r.id)}">${esc(r.nome)}${r.supervisorId ? ' · ' + esc(nomePessoa(r.supervisorId)) : ''}</option>`).join('');
+  const grupoDe = p => papel === 'gestor' ? (S.regionais[p.regional] ? S.regionais[p.regional].nome : 'Sem regional') : papel === 'supervisor' ? (p.comercialId ? nomePessoa(p.comercialId) : 'Sem comercial') : '';
+  const grupos = new Map(); ps.forEach(p => { const k = grupoDe(p); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(p); });
+  const ordem = [...grupos.keys()].sort((a, b) => (a.startsWith('Sem ') - b.startsWith('Sem ')) || byPt(a, b));
+  $('pdfOps').innerHTML = ordem.map(k => `<div class="grp">${k ? `<b>${esc(k)}</b>` : ''}<div>${grupos.get(k).map(p => `<label><input type="checkbox" value="${esc(p.id)}" ${marcadas.has(p.id) ? 'checked' : ''}><span>${esc(p.rotulo)}${papel === 'gestor' ? `<small class="hint">${p.comercialId ? esc(nomePessoa(p.comercialId)) : 'sem comercial'}</small>` : ''}</span></label>`).join('')}</div></div>`).join('');
+  $('pdfMsg').textContent = ''; pdfSync(); $('mPdf').hidden = false;
+  const sel = $('pdfEscopo').querySelector('input:checked'); if (sel) sel.focus();
+}
+function pdfSync() {
+  pdfEsc = ($('pdfEscopo').querySelector('input:checked') || {}).value || 'geral';
+  $('pdfEscopo').querySelectorAll('label').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+  $('pdfRegBox').hidden = pdfEsc !== 'regional'; $('pdfOpsBox').hidden = pdfEsc !== 'operacoes';
+  const caixas = $('pdfOps').querySelectorAll('input'), n = [...caixas].filter(c => c.checked).length;
+  $('pdfOpsN').textContent = `${n} de ${caixas.length} marcada${caixas.length === 1 ? '' : 's'}`;
+}
+$('pdfEscopo').onchange = pdfSync; $('pdfOps').onchange = () => { $('pdfMsg').textContent = ''; pdfSync(); };
+$('pdfTodas').onclick = () => { $('pdfOps').querySelectorAll('input').forEach(c => { c.checked = true; }); pdfSync(); };
+$('pdfNenhuma').onclick = () => { $('pdfOps').querySelectorAll('input').forEach(c => { c.checked = false; }); pdfSync(); };
+$('pdfCancel').onclick = () => { $('mPdf').hidden = true; };
+$('mPdf').addEventListener('click', e => { if (e.target === $('mPdf')) $('mPdf').hidden = true; });
+$('btnPdf').onclick = abrirPdf;
+$('fPdf').onsubmit = e => {
+  e.preventDefault(); const todas = pracasEscopo(); let ps, titulo, detalhe = '';
+  if (pdfEsc === 'regional') {
+    const r = S.regionais[$('pdfReg').value]; if (!r) return;
+    ps = todas.filter(p => p.regional === r.id); titulo = r.nome + (r.supervisorId ? ' · ' + nomePessoa(r.supervisorId) : '');
+  } else if (pdfEsc === 'operacoes') {
+    const ids = new Set([...$('pdfOps').querySelectorAll('input:checked')].map(c => c.value));
+    ps = todas.filter(p => ids.has(p.id)).sort((a, b) => byPt(a.rotulo, b.rotulo));
+    if (!ps.length) { $('pdfMsg').textContent = 'Marque pelo menos uma operação.'; return; }
+    titulo = ps.length === todas.length ? 'Todas as operações' : ps.length <= 3 ? ps.map(p => p.rotulo).join(', ') : `${ps.length} operações`;
+    if (ps.length > 3 && ps.length < todas.length) detalhe = ps.map(p => p.rotulo).join(' · ');
+  } else { ps = todas; titulo = tituloGeral(); }
+  imprimirRelatorio(ps, titulo, detalhe);
+};
+function imprimirRelatorio(ps, titulo, detalhe) {
+  const agora = new Date(); const eu = S.eu;
+  $('printArea').innerHTML = `<header class="pr-head"><div class="brand"><span class="hex"></span><b>Colmeia</b><small>CRM Comercial</small></div>
+    <div style="text-align:right"><h1>Relatório comercial · ${esc(titulo)}</h1><p>Gerado em ${pad(agora.getDate())}/${pad(agora.getMonth() + 1)}/${agora.getFullYear()} às ${pad(agora.getHours())}:${pad(agora.getMinutes())}${eu ? ' por ' + esc(eu.nome) : ''}${S.sync ? ' · base atualizada em ' + esc(fmtDT(S.sync.executado_em)) : ''}</p>${detalhe ? `<p>Operações: ${esc(detalhe)}</p>` : ''}</div></header>${viewRelatorio({ ps, titulo })}`;
+  $('mPdf').hidden = true;
+  // o título da página vira o nome sugerido do arquivo
+  const tituloDoc = document.title; document.title = `Relatório Colmeia - ${titulo.replace(/[\\/:*?"<>|]+/g, '-')} - ${iso(agora)}`;
+  const fim = () => { document.title = tituloDoc; $('printArea').innerHTML = ''; window.removeEventListener('afterprint', fim); };
+  window.addEventListener('afterprint', fim);
+  setTimeout(() => window.print(), 60);
 }
 
 /* ---------- Funil / Lojas / Tarefas ---------- */
@@ -798,6 +862,7 @@ function renderView() {
   $('counters').hidden = gest || painel; $('bnav').hidden = false; $('fab').hidden = gest || painel;
   const titles = { metas: 'Metas do mês', relatorio: 'Relatórios', funil: 'Funil', lista: 'Lojas', tarefas: 'Tarefas', gestao: 'Gestão' };
   $('viewTitle').textContent = titles[S.tab];
+  $('btnPdf').hidden = S.tab !== 'relatorio';
   $('fCidade').hidden = gest; $('fBusca').hidden = gest || painel; $('btnNova').hidden = gest || painel;
   if (!pracasEscopo().length && !gest) { $('view').innerHTML = `<div class="empty"><span class="hex"></span><h2>Nenhuma praça atribuída</h2><p>Peça ao gestor comercial para definir suas praças.</p></div>`; return; }
   $('view').innerHTML = { metas: viewMetas, relatorio: viewRelatorio, funil: viewFunil, lista: viewLista, tarefas: viewTarefas, gestao: viewGestao }[S.tab]();
@@ -831,7 +896,7 @@ $('view').addEventListener('click', async e => {
 function abrirLoja(id) { S.open = id; $('dEdit').hidden = true; $('nTexto').value = ''; $('tTexto').value = ''; $('tData').value = ''; $('drawer').hidden = false; $('scrim').hidden = false; renderDrawer(); $('dClose').focus(); }
 function fecharLoja() { S.open = null; $('drawer').hidden = true; $('scrim').hidden = true; }
 $('dClose').onclick = fecharLoja; $('scrim').onclick = fecharLoja;
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('mNova').hidden) $('mNova').hidden = true; else if (S.open) fecharLoja(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('mPdf').hidden) $('mPdf').hidden = true; else if (!$('mNova').hidden) $('mNova').hidden = true; else if (S.open) fecharLoja(); } });
 
 function renderDrawer() {
   const l = S.lojas.get(S.open); if (!l) { fecharLoja(); return; }
